@@ -1733,12 +1733,28 @@ not product; `qa:website` (12) passed in this checkout.
 | `rc:validate`: `docs:architecture:smoke` | `docs/TEST_MATRIX.md` still listed `storage-window:ipc-authorization:smoke`, retired with the Add Storage window (`f8d9dfc2`). | `bfb2fd7f`: row removed. |
 | `rc:validate`: `instance-engine-fixes-smoke` IE9 (saved record `null`, then `PROCESS_EXITED`, instead of `CRASH_LOOP`) | **Present since Build 215** (the instance engine is unchanged in 216): IE9 failed 2 of 10 quiet runs. Every status poll and list runs `backfillInstanceVersion`, which saved the whole record it was given whenever a version field changed; that record was loaded or reconstructed before awaits, so a poll could write an older state over a newer one (an exit handler's `CRASH_LOOP`). | `08fbc0f5`: the backfill patches only the version fields (plus build date and detection time) onto a fresh read under the instance's state lock, and never recreates a deleted server. IE10 fails on the old code. A diagnostic harness then ran IE9 48 times (12 under six busy CPU processes) with no failure. |
 
-`fleet:aggregation:smoke` failed once (a fixture Agent did not start within
-its wait) and passed 2/2 alone and in the next gate. A 20-run loop of
-`instance-engine-fixes` taken during the first minutes after a PC restart
-had IE8 time-limit failures (30 s worker limits) and three IE9 failures
-while the machine was busy; the instrumented 48-run harness afterwards did
-not reproduce any.
+`fleet:aggregation:smoke` failed once and passed 2/2 alone and in the next
+gate. Its log shows the desktop's own 8 s node health probe timing out
+(`AGENT_TIMEOUT`) against a loopback fixture that answers in 150 ms, during
+the first gate's deep-path run: the product timeout was exceeded on an
+overloaded machine. It is a product value for real computers and was not
+changed. A 20-run loop of `instance-engine-fixes` taken during the first
+minutes after a PC restart had IE8 time-limit failures and three IE9
+failures while the machine was busy; see "Remaining risks fixed" below.
+
+### Remaining risks fixed (owner: "fix the remaining risks", 2026-11-26)
+
+Measured first: `instance-engine-fixes` 10 times with a busy loop on each of
+the 12 cores failed **8 of 10** runs (IE8 in all 8, IE9 once). IE9 was then
+run 24 times under the same load with the instance core's automatic-restart
+handler instrumented (a temporary copy, removed afterwards).
+
+| Risk | Cause found | Fix |
+| --- | --- | --- |
+| NeoForge sync saved the whole record | `syncNeoForgeScriptRuntimeConfig` (run by every status poll, list and start) saved the snapshot it was given whenever a launcher field changed, the same race as the version backfill. | `deriveNeoForgeRuntimeConfig` computes the launcher fields; the sync re-derives them from a fresh read under the instance state lock, saves only a real change, logs only a save, and never recreates a deleted server. IE11 fails on the old code (CRASH_LOOP replaced). |
+| IE8 "loops forever" on a busy PC | The Denver run drives the real scheduler with file I/O on every tick and took more than its fixed 120 s with every core busy; a wall-clock limit cannot tell slow from stuck. | The zone child writes a heartbeat after every tick and every 1,000 sweep calls; the runner kills it only after 20 s without one (10 min backstop). A temporary mutation making `nextDailyRunMs` loop forever on DST days still fails IE8 ("did not return for 20 s"). |
+| IE9 "crash 2 is restarted" | No restart was refused or lost (the timer fired at most 145 ms late); `startInstance`'s pre-spawn work under load put the spawn 6 s after the crash, and past 15 s once. | Event waits in IE3, IE4 and IE9 use one 60 s limit (`EVENT_WAIT_MS`; they return as soon as the event happens), and IE3's long-run check also accepts the restart itself, since its 1 s timer can expire between two polls. |
+| **Product: config saves failed on a busy Windows PC** (found by the instrumented runs) | One IE9 pass failed with `EPERM` renaming `config.json`: the atomic write's retry window was 5 × 25 ms (125 ms), and a file held open longer (a poll's read, the other process, antivirus) made `updateRuntimeState` throw. That path records crashes and starts servers. Present since the retry was added (`2a239c87`). | Retries back off from 25 ms to 500 ms within a 3 s budget (Windows only, transient codes only, as before). `instance-runtime-smoke` now rides out 600 ms of contention and gives up on a permanent lock within the budget; it fails on the old code. |
 
 ### Validation performed (development PC, 2026-11-25/26)
 
@@ -1750,14 +1766,17 @@ not reproduce any.
 | Earlier full runs (`bfb2fd7f`, before the restart) | `rc:validate` 428/429 (IE9, fixed in `08fbc0f5`), `qa:release` **153/153** |
 | `instance-engine-fixes` IE9 (fix) | Before: 2 of 10 quiet runs failed. After: diagnostic harness 48/48 (12 under load) |
 | `ssh-key-setup-smoke` (fix) | 10/10 three runs in a row; the four other SSH smokes pass |
+| `instance-engine-fixes` with a busy loop on all 12 cores (risk fixes) | Before: **8 of 10 runs failed**. After: **0 of 8 failed** (220–510 s per run). Quiet: 11/11 twice |
+| Old-code proofs (risk fixes) | IE11 fails on the committed core ("kept the newer CRASH_LOOP"); `instance-runtime-smoke` fails on the committed core (600 ms contention); IE8 fails against a `nextDailyRunMs` that hangs on DST days. Each file restored and compared byte-identical |
+| Focused smokes (risk fixes, this checkout) | PASS: `instance-runtime`, `instance-runtime-reconciliation`, `server-failures`, `process-supervision-hardening`, `state-durability-hardening`, `backup-file-fixes`, `instance-deletion`, `curseforge-server-pack-resolution`, `release-consistency`, `versioning:smoke`, `docs:architecture:smoke`; `node --check`; `git diff --check` |
+| Not rerun after the risk fixes | full `rc:validate` and `qa:release` (last full results at `08fbc0f5` above) |
 | `node --check` of changed JS, `git diff --check` | PASS |
 
 ### 216-G remaining risks
 
-- The NeoForge runtime sync in a status poll still saves the record it
-  loaded (only for NeoForge servers with a script launcher); not changed, to
-  keep the fix focused.
-- IE8's worker time limits and the real-app suites are sensitive to a busy
-  machine (as recorded at A1 and A10).
+- The real-app UI suites are still sensitive to a busy machine (as recorded
+  at A1 and A10); the fixes above cover the instance engine smoke only.
+- `fleet:aggregation:smoke` can still fail if the machine is too loaded for
+  a loopback reply within the desktop's 8 s health probe (seen once).
 - Not done: push to `dev`, the signed RC (`windows-release.yml`), its
   verification, the `confirmed` install and Computer Use acceptance.

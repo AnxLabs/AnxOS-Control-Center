@@ -18,8 +18,10 @@
 //       re-anchored to its wall-clock time: one restart, at the right hour.
 //   IE8 Daily schedules at 00:xx (and every other time) never loop forever on
 //       a DST day: one restart per day at the wall-clock time, in zones that
-//       repeat or skip midnight too. Each zone runs in a worker thread that
-//       is terminated after 30 s, so a hang fails instead of blocking.
+//       repeat or skip midnight too. Each zone runs in a child process that
+//       reports progress; it is killed when a scheduler call has not
+//       returned for 20 s, so a hang fails instead of blocking, and a run
+//       that is only slow (every core busy) still passes.
 //   IE9 A status poll during a crash's exit handling never replaces the
 //       handler's CRASH_LOOP with PROCESS_EXITED (polls run every few ms
 //       while the server crash-loops, so they overlap the handler's writes).
@@ -28,6 +30,10 @@
 //       save the whole record it was given, so a poll holding a snapshot from
 //       before an exit handler's CRASH_LOOP put PROCESS_EXITED or null back
 //       (IE9 failed 2 of 10 quiet runs this way).
+//   IE11 Build 216-G: the NeoForge launcher sync (also run by every status
+//       poll and list) re-derives its fields from the record on disk under
+//       the state lock. It used to save the whole snapshot it was given, the
+//       same way the version backfill did.
 // Hermetic: temporary roots, a fake child_process.spawn (nothing is launched),
 // a fake systemd, a local fake Palworld REST server on an ephemeral loopback
 // port, and injected clocks. No real Agent, service or scheduled task.
@@ -113,7 +119,7 @@ function createFakeChild() {
   return child;
 }
 // Kept for IE8's per-zone runs of this same Node binary (never a server).
-const realSpawnSync = childProcess.spawnSync;
+const realSpawn = childProcess.spawn;
 childProcess.spawn = () => {
   const child = createFakeChild();
   children.push(child);
@@ -151,6 +157,13 @@ async function waitFor(predicate, timeoutMs) {
   }
   return Boolean(await predicate());
 }
+
+// How long to wait for an event the code under test must produce (a restart,
+// a recorded state). waitFor returns as soon as it happens, so this only
+// bounds a failing run. With every core busy, a restart's spawn came 6 s after
+// the crash and once more than 15 s (2026-11-26), and a 15 s limit reported
+// a slow restart as a lost one. A lost restart never arrives at all.
+const EVENT_WAIT_MS = 60000;
 
 function readRecord(id) {
   return JSON.parse(fs.readFileSync(path.join(instanceRoot, id, "config.json"), "utf8"));
@@ -262,7 +275,7 @@ async function checkCrashLoopAfterSlowCrashes() {
       offset += 30000; // the server loads for 30 s, then crashes
       children[children.length - 1].emit("exit", 1, null);
       if (crash < 4) {
-        assert.ok(await waitFor(() => children.length > before, 15000), `crash ${crash} is restarted`);
+        assert.ok(await waitFor(() => children.length > before, EVENT_WAIT_MS), `crash ${crash} is restarted`);
         // Crash the restarted server only once its start is recorded (Starting
         // or Running with the new PID), as a real crash 30 s in would be; a
         // fixed short wait raced that bookkeeping under load.
@@ -270,10 +283,10 @@ async function checkCrashLoopAfterSlowCrashes() {
         assert.ok(await waitFor(async () => {
           const current = await core.getStatus(id);
           return ["Starting", "Running"].includes(current.state) && current.pid === restarted.pid;
-        }, 15000), `restart ${crash} is recorded as running`);
+        }, EVENT_WAIT_MS), `restart ${crash} is recorded as running`);
       }
     }
-    await waitFor(async () => (await core.getStatus(id)).failureReason === "CRASH_LOOP", 8000);
+    await waitFor(async () => (await core.getStatus(id)).failureReason === "CRASH_LOOP", EVENT_WAIT_MS);
     // An unfixed build schedules a 1 s restart here; give it the chance.
     await wait(1500);
     const status = await core.getStatus(id);
@@ -284,8 +297,11 @@ async function checkCrashLoopAfterSlowCrashes() {
     // A run that stayed up past the stable window resets the budget.
     await core.startInstance(id);
     offset += 11 * 60 * 1000;
+    const beforeLongRunCrash = children.length;
     children[children.length - 1].emit("exit", 1, null);
-    assert.ok(await waitFor(() => core._test.getResourceCounts().restartTimers === 1, 8000), "a crash after a long run is restarted");
+    // The restart timer lasts 1 s; a poll stalled past it would miss the
+    // timer, so the restart it started also counts.
+    assert.ok(await waitFor(() => core._test.getResourceCounts().restartTimers === 1 || children.length > beforeLongRunCrash, EVENT_WAIT_MS), "a crash after a long run is restarted");
   } finally {
     Date.now = realNow;
     core._test.resetRestartBackoff(id);
@@ -313,12 +329,12 @@ async function checkPollsDuringExitKeepCrashLoop() {
         offset += 30000;
         children[children.length - 1].emit("exit", 1, null);
         if (crash < 4) {
-          assert.ok(await waitFor(() => children.length > before, 15000), `round ${round}: crash ${crash} is restarted`);
+          assert.ok(await waitFor(() => children.length > before, EVENT_WAIT_MS), `round ${round}: crash ${crash} is restarted`);
           const restarted = children[children.length - 1];
-          assert.ok(await waitFor(async () => (await core.getStatus(id)).pid === restarted.pid, 15000), `round ${round}: restart ${crash} is recorded`);
+          assert.ok(await waitFor(async () => (await core.getStatus(id)).pid === restarted.pid, EVENT_WAIT_MS), `round ${round}: restart ${crash} is recorded`);
         }
       }
-      await waitFor(async () => (await core.getStatus(id)).failureReason === "CRASH_LOOP", 8000);
+      await waitFor(async () => (await core.getStatus(id)).failureReason === "CRASH_LOOP", EVENT_WAIT_MS);
       await wait(300);
       polling = false;
       await poller;
@@ -356,6 +372,51 @@ async function checkVersionBackfillKeepsNewerState() {
   assert.ok(!fs.existsSync(path.join(instanceRoot, gone, "config.json")), "a deleted server is not recreated by a poll");
 }
 
+async function checkNeoForgeSyncKeepsNewerState() {
+  // The sync only inspects NeoForge script runtimes on Linux and macOS, so the
+  // check presents a POSIX platform while it runs.
+  const realPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { ...realPlatform, value: "linux" });
+  try {
+    const makeNeoForge = async (id) => {
+      await core.createInstance({ id, displayName: id, type: "java-app", workingDirectory: "data", executable: "java", args: ["-jar", "server.jar"], restartPolicy: "on-failure" });
+      const data = path.join(instanceRoot, id, "data");
+      const argsDir = path.join(data, "libraries", "net", "neoforged", "neoforge", "21.1.77");
+      fs.mkdirSync(argsDir, { recursive: true });
+      fs.writeFileSync(path.join(argsDir, "unix_args.txt"), "-cp libraries/x.jar\n");
+      fs.writeFileSync(path.join(data, "run.sh"), "#!/bin/sh\njava @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.77/unix_args.txt \"$@\"\n");
+    };
+    const id = "neoforge-stale-snapshot";
+    await makeNeoForge(id);
+    // The poll's snapshot, taken before the exit handler's writes.
+    const stale = { ...readRecord(id), state: "stopped", failureReason: null };
+    const file = path.join(instanceRoot, id, "config.json");
+    fs.writeFileSync(file, JSON.stringify({ ...readRecord(id), state: "failed", failureReason: "CRASH_LOOP", restartFailures: 4 }, null, 2));
+    const returned = await core._test.syncNeoForgeScriptRuntimeConfig(stale);
+    const saved = readRecord(id);
+    assert.strictEqual(saved.failureReason, "CRASH_LOOP", "the sync kept the newer CRASH_LOOP on disk");
+    assert.strictEqual(saved.state, "failed", "the sync kept the newer state on disk");
+    assert.strictEqual(saved.restartFailures, 4, "fields the sync does not own are untouched");
+    assert.strictEqual(saved.serverSoftware, "NeoForge", "the launcher fields were still saved");
+    assert.strictEqual(saved.type, "custom-command", "the script launcher was saved");
+    assert.strictEqual(saved.softwareVersion, "21.1.77", "the runtime version was saved");
+    assert.strictEqual(returned.failureReason, "CRASH_LOOP", "the caller gets the record that was saved");
+    // A second sync with nothing to change writes nothing.
+    const before = fs.readFileSync(file, "utf8");
+    await core._test.syncNeoForgeScriptRuntimeConfig(readRecord(id));
+    assert.strictEqual(fs.readFileSync(file, "utf8"), before, "an unchanged record is not rewritten");
+    // A server deleted while it was being read is not recreated.
+    const gone = "neoforge-deleted";
+    await makeNeoForge(gone);
+    const goneSnapshot = readRecord(gone);
+    fs.rmSync(path.join(instanceRoot, gone, "config.json"), { force: true });
+    await core._test.syncNeoForgeScriptRuntimeConfig(goneSnapshot);
+    assert.ok(!fs.existsSync(path.join(instanceRoot, gone, "config.json")), "a deleted server is not recreated by the sync");
+  } finally {
+    Object.defineProperty(process, "platform", realPlatform);
+  }
+}
+
 async function checkReadyLineCancelsStartupTimer() {
   async function run(id, startupTimeoutMs, slow) {
     await core.createInstance({ id, displayName: id, type: "custom-command", workingDirectory: "data", executable: process.execPath, args: ["-e", "0"], restartPolicy: "never", startupTimeoutMs });
@@ -363,13 +424,13 @@ async function checkReadyLineCancelsStartupTimer() {
     const child = children[children.length - 1];
     if (slow) {
       // The startup timer fires first and records READINESS_TIMEOUT.
-      assert.ok(await waitFor(() => readRecord(id).failureReason === "READINESS_TIMEOUT", 5000), "slow: the startup timer fired first");
+      assert.ok(await waitFor(() => readRecord(id).failureReason === "READINESS_TIMEOUT", EVENT_WAIT_MS), "slow: the startup timer fired first");
     }
     child.stdout.write("[Server thread/INFO]: Done (0.4s)! For help, type \"help\"\n");
     await waitFor(() => {
       const record = readRecord(id);
       return record.readinessState === "ready" && (record.failureReason ?? null) === null;
-    }, 5000);
+    }, EVENT_WAIT_MS);
     // Stay well past the startup timeout so a late timer write would show.
     await wait(startupTimeoutMs + 400);
     const status = await core.getStatus(id);
@@ -546,6 +607,10 @@ function dailyScheduleWorkerMain() {
   const service = require(path.join(repoRoot, "agent", "src", "services", "restartScheduleService"));
   const HOUR = 60 * 60 * 1000;
   const iso = (ms) => new Date(ms).toISOString();
+  // A heartbeat for the runner's watchdog: written after every scheduler tick
+  // and every 1,000 sweep calls. A scheduler call that never returns stops it.
+  let beats = 0;
+  const progress = () => { beats += 1; parentPort.postMessage({ progress: beats }); };
 
   async function simulate(dailyTime, storedIso, startIso, endIso) {
     let clock = 0;
@@ -568,6 +633,7 @@ function dailyScheduleWorkerMain() {
     fs.writeFileSync(path.join(root, "schedules.json"), JSON.stringify({ schemaVersion: service.RESTART_SCHEDULE_SCHEMA_VERSION, schedules: [schedule] }));
     for (clock = Date.parse(startIso); clock <= Date.parse(endIso); clock += 5 * 60 * 1000) {
       await service.runDueSchedules();
+      progress();
     }
     const saved = JSON.parse(fs.readFileSync(path.join(root, "schedules.json"), "utf8")).schedules[0];
     return { restarts, nextRunAt: saved.nextRunAt };
@@ -634,6 +700,7 @@ function dailyScheduleWorkerMain() {
       for (const minutesOfDay of times) {
         const next = service.nextDailyRunMs(minutesOfDay, fromMs);
         calls += 1;
+        if (calls % 1000 === 0) progress();
         const where = `${zone} ${minutesOfDay} min from ${iso(fromMs)} -> ${Number.isFinite(next) ? iso(next) : next}`;
         assert.ok(Number.isFinite(next) && next > fromMs, `the next run is after the start (${where})`);
         assert.ok(next - fromMs <= (minimalityChecked ? 25 : 49) * HOUR, `the next run is within a day (${where})`);
@@ -670,6 +737,60 @@ function dailyScheduleWorkerMain() {
   })();
 }
 
+// A hang is judged by progress, not by total time. The Denver run drives the
+// real scheduler, whose schedules.json I/O on every tick took 7-20 s on
+// Windows and passed fixed limits of 30 s and then 120 s with every core busy
+// (7 of 9 runs, 2026-11-26), reporting "loops forever" for a run that was only
+// slow. The child writes a heartbeat after each tick and each 1,000 sweep
+// calls (well under a second apart even under load), so it is killed only
+// when one scheduler call has not returned for IDLE_MS. The overall limit is
+// a backstop for a run that keeps beating but never finishes.
+const DAILY_ZONE_IDLE_MS = 20000;
+const DAILY_ZONE_TOTAL_MS = 10 * 60 * 1000;
+
+function runDailyScheduleZone(run, root) {
+  return new Promise((resolve) => {
+    const child = realSpawn(process.execPath, ["-e", `(${dailyScheduleWorkerMain.toString()})();`], {
+      env: { ...process.env, TZ: run.zone, ANX_DAILY_SCHEDULE_RUN: JSON.stringify({ repoRoot, root, ...run }) },
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let stdout = "";
+    let stderr = "";
+    let verdict = null;
+    const stop = (reason) => {
+      if (verdict) return;
+      verdict = reason;
+      child.kill();
+    };
+    let idleTimer = setTimeout(() => stop("idle"), DAILY_ZONE_IDLE_MS);
+    const totalTimer = setTimeout(() => stop("total"), DAILY_ZONE_TOTAL_MS);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      if (stdout.length > 64 * 1024) stdout = stdout.slice(-16 * 1024);
+      clearTimeout(idleTimer);
+      if (!verdict) idleTimer = setTimeout(() => stop("idle"), DAILY_ZONE_IDLE_MS);
+    });
+    child.stderr.on("data", (chunk) => { stderr = `${stderr}${chunk}`.slice(-4000); });
+    child.on("close", (code) => {
+      clearTimeout(idleTimer);
+      clearTimeout(totalTimer);
+      const lines = stdout.trim().split(/\r?\n/).filter(Boolean);
+      let result = null;
+      for (let index = lines.length - 1; index >= 0 && !result; index -= 1) {
+        try {
+          const parsed = JSON.parse(lines[index]);
+          if (parsed && typeof parsed.ok === "boolean") result = parsed;
+        } catch {}
+      }
+      if (verdict === "idle") result = { ok: false, error: `a scheduler call did not return for ${DAILY_ZONE_IDLE_MS / 1000} s (it loops forever)` };
+      else if (verdict === "total") result = { ok: false, error: `the run did not finish within ${DAILY_ZONE_TOTAL_MS / 60000} minutes` };
+      else if (!result) result = { ok: false, error: `no result (exit ${code}): ${stderr.slice(-600)}` };
+      resolve(result);
+    });
+  });
+}
+
 async function checkDailyMidnightSchedulesTerminate() {
   const root = path.join(tempRoot, "midnight-schedules");
   fs.mkdirSync(root, { recursive: true });
@@ -687,27 +808,7 @@ async function checkDailyMidnightSchedulesTerminate() {
     { zone: "Pacific/Apia", sweepFromIso: "2011-12-01T00:00:00.000Z", sweepToIso: "2012-02-01T00:00:00.000Z", minimalityChecked: false },
   ];
   for (const run of runs) {
-    // The integration run (Denver) drives the real scheduler, which reads and
-    // writes schedules.json on every 5-minute tick across seven cases; on
-    // Windows that file I/O alone took 7-20 s (measured 2026-11-18) and
-    // sometimes passed 30 s under load, so it reported a hang that was not
-    // one. It gets 120 s; the sweep-only zones (1-2 s) keep 30 s. A real
-    // infinite loop still fails either limit.
-    const limitMs = run.integration ? 120000 : 30000;
-    const child = realSpawnSync(process.execPath, ["-e", `(${dailyScheduleWorkerMain.toString()})();`], {
-      env: { ...process.env, TZ: run.zone, ANX_DAILY_SCHEDULE_RUN: JSON.stringify({ repoRoot, root, ...run }) },
-      encoding: "utf8",
-      timeout: limitMs,
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    const line = String(child.stdout || "").trim().split(/\r?\n/).filter(Boolean).pop() || "";
-    let result;
-    try { result = JSON.parse(line); } catch { result = null; }
-    if (!result) {
-      result = child.error?.code === "ETIMEDOUT" || child.signal
-        ? { ok: false, error: `the scheduler did not return within ${limitMs / 1000} s (it loops forever)` }
-        : { ok: false, error: `no result (exit ${child.status}): ${String(child.stderr || "").slice(-600)}` };
-    }
+    const result = await runDailyScheduleZone(run, root);
     assert.ok(result.ok, `${run.zone}: ${result.error}`);
     // Only zones whose rules are settled must cross a change; the others still
     // have to terminate, whatever the runtime's time zone data says.
@@ -727,6 +828,7 @@ const checks = [
   ["IE8 daily schedules near midnight never hang the Agent on a DST day", checkDailyMidnightSchedulesTerminate],
   ["IE9 status polls during a crash's exit handling keep CRASH_LOOP", checkPollsDuringExitKeepCrashLoop],
   ["IE10 version backfill writes only its own fields onto the newer record", checkVersionBackfillKeepsNewerState],
+  ["IE11 NeoForge launcher sync writes only its own fields onto the newer record", checkNeoForgeSyncKeepsNewerState],
 ];
 
 (async () => {

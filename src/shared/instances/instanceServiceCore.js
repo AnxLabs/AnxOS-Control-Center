@@ -151,8 +151,14 @@ const PAGE_SIZE_BYTES = 4096;
 const VERSION_CACHE_VERSION = 6;
 const INSTANCE_CONFIG_SCHEMA_VERSION = 2;
 const ATOMIC_RENAME_RETRY_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
-const ATOMIC_RENAME_RETRY_ATTEMPTS = 5;
+// Windows refuses to replace a file while another handle (a status poll's
+// read, the other process, an antivirus scan) has it open. Five retries 25 ms
+// apart (125 ms) ran out on a busy PC, and the write that failed could be an
+// exit handler recording a crash or a Start (2026-11-26). Retries now back
+// off from 25 ms to 500 ms within a 3 s budget.
 const ATOMIC_RENAME_RETRY_DELAY_MS = 25;
+const ATOMIC_RENAME_RETRY_MAX_DELAY_MS = 500;
+const ATOMIC_RENAME_RETRY_BUDGET_MS = 3000;
 const FIVEM_LICENSE_MESSAGE = "FiveM needs a valid license key in server.cfg before it can start.";
 const FIVEM_CONFIG_RELATIVE_PATH = "server/server.cfg";
 const FIVEM_LICENSE_PLACEHOLDERS = new Set([
@@ -1839,20 +1845,21 @@ function wait(ms) {
 }
 
 async function renameManagedFileWithRetry(tempPath, filePath) {
-  let lastError = null;
-  for (let attempt = 0; attempt <= ATOMIC_RENAME_RETRY_ATTEMPTS; attempt += 1) {
+  const deadline = Date.now() + ATOMIC_RENAME_RETRY_BUDGET_MS;
+  let delayMs = ATOMIC_RENAME_RETRY_DELAY_MS;
+  for (;;) {
     try {
       await fs.rename(tempPath, filePath);
       return;
     } catch (error) {
-      lastError = error;
-      if (!isTransientAtomicRenameError(error) || attempt >= ATOMIC_RENAME_RETRY_ATTEMPTS) {
+      const remainingMs = deadline - Date.now();
+      if (!isTransientAtomicRenameError(error) || remainingMs <= 0) {
         throw error;
       }
-      await wait(ATOMIC_RENAME_RETRY_DELAY_MS);
+      await wait(Math.min(delayMs, remainingMs));
+      delayMs = Math.min(delayMs * 2, ATOMIC_RENAME_RETRY_MAX_DELAY_MS);
     }
   }
-  throw lastError;
 }
 
 async function atomicWriteManagedFile(filePath, content, options = {}) {
@@ -3979,11 +3986,9 @@ function shouldClearRuntimeFailure(config = {}) {
     ["NEOFORGE_RUNTIME_INCOMPLETE", "SERVER_JAR_MISSING", "STARTUP_SCRIPT_MISSING"].includes(String(config.failureReason || ""));
 }
 
-async function syncNeoForgeScriptRuntimeConfig(config = {}) {
-  const runtime = await inspectNeoForgeScriptRuntime(config).catch(() => null);
-  if (!runtime) {
-    return config;
-  }
+// Returns the record with the NeoForge launcher fields derived from `runtime`,
+// or null when nothing would change. Pure: the caller decides what to save.
+function deriveNeoForgeRuntimeConfig(config, runtime) {
   const launcher = runtime.script ? getStartupScriptLauncher(runtime.script) : null;
   const shouldUseScriptLauncher = Boolean(launcher && (runtime.ready || config.type === "java-app" || usesJavaJarCommand(config)));
   const next = {
@@ -4012,13 +4017,34 @@ async function syncNeoForgeScriptRuntimeConfig(config = {}) {
     const { updatedAt: _updatedAt, ...rest } = clearInstallerRuntimeJarMetadata(value);
     return rest;
   };
-  const changed = JSON.stringify(comparable(next)) !== JSON.stringify(comparable(config));
-  if (changed) {
-    await saveInstanceConfig(next);
-    await appendLog(config.id, "stdout", `Synced NeoForge script launcher runtime: ${formatCommandForLog(next)}`).catch(() => {});
-    return next;
+  return JSON.stringify(comparable(next)) !== JSON.stringify(comparable(config)) ? next : null;
+}
+
+// Status polls and listings call this with a record read before several
+// awaits. Saving that whole record could put back an older state (a crash's
+// CRASH_LOOP, a stop) written meanwhile, so the fields are re-derived from a
+// fresh read under the state lock and only a real change is saved.
+async function syncNeoForgeScriptRuntimeConfig(config = {}) {
+  const runtime = await inspectNeoForgeScriptRuntime(config).catch(() => null);
+  if (!runtime || !deriveNeoForgeRuntimeConfig(config, runtime)) {
+    return config;
   }
-  return config;
+  let result;
+  try {
+    result = await withInstanceStateLock(config.id, async () => {
+      const current = await loadInstanceConfig(config.id);
+      const next = deriveNeoForgeRuntimeConfig(current, runtime);
+      if (next) await saveInstanceConfig(next);
+      return { record: next || current, saved: Boolean(next) };
+    });
+  } catch (error) {
+    if (error?.code === "INSTANCE_NOT_FOUND") return config;
+    throw error;
+  }
+  if (result.saved) {
+    await appendLog(config.id, "stdout", `Synced NeoForge script launcher runtime: ${formatCommandForLog(result.record)}`).catch(() => {});
+  }
+  return result.record;
 }
 
 async function validateNeoForgeRuntimeFiles(config) {
@@ -8787,6 +8813,7 @@ module.exports = {
   noteCommonServerFailure,
   _test: {
     backfillInstanceVersion,
+    syncNeoForgeScriptRuntimeConfig,
     checkUdpPortHeld,
     resolveSpawnExecutable,
     jobLifecycle,

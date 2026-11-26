@@ -1213,6 +1213,62 @@ async function assertAtomicConfigWriteRetriesWindowsRenameContention() {
   }, { platform: "win32" });
 }
 
+// Build 216-G: a status poll's read (or the other process, or an antivirus
+// scan) can hold config.json open for longer than the old 125 ms retry window
+// on a busy PC, and the failed write could be an exit handler recording a
+// crash. Contention lasting 600 ms must be ridden out; a lock that never
+// clears must still fail, within the 3 s budget.
+async function assertAtomicConfigWriteRidesOutLongWindowsContention() {
+  await withTempService(async (instanceService, root) => {
+    const targetPath = path.join(root, "atomic-long.json");
+    const originalRename = fs.promises.rename;
+    const busyUntil = Date.now() + 600;
+    let attempts = 0;
+    fs.promises.rename = async (from, to) => {
+      attempts += 1;
+      if (Date.now() < busyUntil) {
+        const error = new Error("file held open by another reader");
+        error.code = "EPERM";
+        throw error;
+      }
+      return originalRename(from, to);
+    };
+    try {
+      await instanceService._test.atomicWriteManagedFile(targetPath, `${JSON.stringify({ ok: true }, null, 2)}\n`);
+    } finally {
+      fs.promises.rename = originalRename;
+    }
+    assert.ok(attempts > 1, "the contended rename was retried");
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(targetPath, "utf8")), { ok: true }, "a write held off for 600 ms still lands");
+  }, { platform: "win32" });
+
+  await withTempService(async (instanceService, root) => {
+    const targetPath = path.join(root, "atomic-stuck.json");
+    const originalRename = fs.promises.rename;
+    let attempts = 0;
+    fs.promises.rename = async () => {
+      attempts += 1;
+      const error = new Error("file locked for good");
+      error.code = "EBUSY";
+      throw error;
+    };
+    const startedAt = Date.now();
+    try {
+      await assert.rejects(
+        () => instanceService._test.atomicWriteManagedFile(targetPath, "{}\n"),
+        (error) => error.code === "EBUSY",
+        "a rename that never succeeds still fails",
+      );
+    } finally {
+      fs.promises.rename = originalRename;
+    }
+    const elapsedMs = Date.now() - startedAt;
+    assert.ok(elapsedMs >= 2500 && elapsedMs < 6000, `the retries stop at the 3 s budget (took ${elapsedMs} ms)`);
+    assert.ok(attempts >= 6 && attempts <= 20, `the retries back off (${attempts} attempts)`);
+    assert.strictEqual(fs.readdirSync(root).filter((name) => name.startsWith("atomic-stuck.json.") && name.endsWith(".tmp")).length, 0, "a failed write cleans up its temporary file");
+  }, { platform: "win32" });
+}
+
 async function assertAtomicConfigWriteDoesNotRetryWindowsOnlyErrorsOnOtherPlatforms() {
   await withTempService(async (instanceService, root) => {
     const targetPath = path.join(root, "atomic-non-windows.json");
@@ -1352,6 +1408,7 @@ async function run() {
   await assertStopPrefersReconciledRuntimeOverWrapper();
   await assertStopTargetsDescendantConfiguredPortOwner();
   await assertAtomicConfigWriteRetriesWindowsRenameContention();
+  await assertAtomicConfigWriteRidesOutLongWindowsContention();
   await assertAtomicConfigWriteDoesNotRetryWindowsOnlyErrorsOnOtherPlatforms();
   await assertAtomicConfigWritePropagatesPermanentRenameFailures();
   await assertRenameDuplicateAndCrashLifecycle();

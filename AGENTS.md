@@ -1288,6 +1288,31 @@ Use this section to accumulate verified project knowledge over time. Add entries
   bad value; "the wait timed out" and "a writer replaced it" look the same
   in an unasserted wait.
 
+### 2026-11-26 — Build 216-G: "flaky under load" hid a product bug
+
+- **Problem:** With a busy loop on every core, `instance-engine-fixes`
+  failed 8 of 10 runs: IE8 reported a scheduler that "loops forever", and
+  IE9 a restart that never came. Separately, the NeoForge launcher sync still
+  saved whole records from status polls.
+- **Cause:**
+  - IE8's fixed 120 s limit was a wall-clock guess; the run was only slow.
+  - IE9's 15 s wait expired before a slow but real restart.
+  - Instrumenting IE9 under load found a real defect behind one failure:
+    Windows refused to replace `config.json` for longer than the atomic
+    write's 125 ms retry window, so a crash record or a Start could fail.
+  - The NeoForge sync saved its caller's snapshot, like the backfill fixed
+    earlier the same day.
+- **Resolution:** IE8 kills its child only after 20 s without a heartbeat.
+  Event waits use 60 s. Renames back off within a 3 s budget. The NeoForge
+  sync re-derives its fields from a fresh read under the state lock.
+  IE11, the new retry tests and a hang mutation for IE8 each fail on the old
+  code.
+- **Lesson:** Before raising a test's timeout, instrument the code under
+  test while the failure reproduces under load. "Slow" and "lost" look the
+  same from a wait. Judge a hang by lack of progress, not by total time. When
+  one writer is found saving a stale snapshot, search for every other caller
+  of the same save in the same code path.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
