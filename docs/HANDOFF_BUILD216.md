@@ -2053,6 +2053,22 @@ and `win-unpacked` (314 desktop modules, 0 unresolved, Agent copies present).
 - Windows Sandbox (Smart App Control enforced): every scenario passed, including the new reopen-from-tray check (window hidden to the tray and shown again, not recreated; no exception).
 - **Finding:** on a slow Sandbox disk the silent engine showed NSIS `verifying installer: N%` windows (its own CRC pass, during install and repair). Fixed locally: Setup passes `/NCRC` (it has already verified the engine`s SHA-256 and signature); `anxhost-setup-contract-smoke` S13. A new signed RC is needed.
 
+### RC3 (current): run 45957957098, commit `1212d772`
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `AnxOS-Control-Center-Setup-2.0-build216.exe` (441,549,112 bytes) | `2b06e7e375181ada5154c26d6ee3f9db4523316de1c4c21af89e4c6ab215adbb` |
+| embedded engine (not published) | `a155badb4f4779c710c9f5635da7b2c329456cb5353969d05b83742a7da76e23` |
+| `AnxOS-Control-Center-2.0-build216-portable.exe` | `9a75828ffae2de6805030d4b951b935ed09a0ddb22613f33f659fcd94aab77e8` |
+| `AnxOS-Control-Center-2.0-build216.deb` | `487086c8ec3a363fea5aab637432f806d09d63a0dda9683a8f9983597c30059a` |
+| `AnxOS-Control-Center-2.0-build216.AppImage` | `ef8beb5ada95e27beb846b8e41ee81c808956978885fcfe68bfb77982d391e40` |
+| `latest.yml` | `ba4b9631a02b031b3afe0602c4ddb2be90624c55ea66db8fda1eb0889e73be2e` |
+
+- All jobs green (publish skipped); in-build package check passed on the `.deb`, AppImage and `win-unpacked`. Artifact checks 10/10; Setup and engine Authenticode Valid, CN=Anjo ROSIMO, issuer Microsoft ID Verified CS EOC CA 03 (the Trusted Signing certificate rotated since RC2; the publisher pin matches).
+- Linux: the CI `.deb` and AppImage verified and opened from a clean profile (AnxNet status served, no uncaught exception).
+- Windows Sandbox, Smart App Control enforced, all scenarios pass. Setup's log shows the engine command line `engine /S /NCRC /ANXSTATUS=… /D=…`; no NSIS or console window in normal setup; reopen from the tray shows the same window; data, Helper and Agent identity kept in every upgrade; 0 Code Integrity blocks.
+- Waiting for the owner's `confirmed` before installing over the real app (currently RC1 `32864023`; same build number, so Setup offers Repair).
+
 ### 216-G remaining risks
 
 - The real-app UI suites are still sensitive to a busy machine (as recorded
