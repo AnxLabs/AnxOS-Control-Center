@@ -30,7 +30,7 @@ const full = restore.describeRestorePreview({
 assert.match(full.lines[0], /Everything in this server's folder is replaced/);
 assert.ok(full.lines.includes("The backup was taken 1 Nov 2026."));
 assert.ok(full.lines.some((line) => /safety copy of the whole server/.test(line)));
-assert.deepStrictEqual(full.warnings, ["The server is running. AnxOS stops it before restoring."]);
+assert.deepStrictEqual(full.warnings, ["The server is running. AnxHost stops it before restoring."]);
 const world = restore.describeRestorePreview({
   preview: true,
   backup: {},

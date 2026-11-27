@@ -41,7 +41,7 @@ assert.deepStrictEqual(defaults.recommendMemory("4G"), { memory: "4G", changed: 
 let memory = defaults.recommendMemory("4G", { totalBytes: 4 * GIB });
 assert.strictEqual(memory.memory, "3G", "4 GiB computer leaves 1 GiB for the system");
 assert.strictEqual(memory.changed, true);
-assert.match(memory.warning, /usually wants 4G, .* about 4G in total, so AnxOS set 3G/);
+assert.match(memory.warning, /usually wants 4G, .* about 4G in total, so AnxHost set 3G/);
 memory = defaults.recommendMemory("2G", { totalBytes: 1.2 * GIB });
 assert.strictEqual(memory.memory, "2G", "too-small computers keep the value and get a warning");
 assert.match(memory.warning, /very little/);
@@ -69,7 +69,7 @@ const owners = defaults.listenerPortOwners([
 assert.deepStrictEqual(owners, { 25565: "java (PID 412)", 8080: "a program (PID 9)", 3000: "another program" });
 port = defaults.recommendPort(25565, [], { owners });
 assert.strictEqual(port.port, 25566);
-assert.ok(port.reason.includes("in use on this computer by java (PID 412), so AnxOS picked 25566"), port.reason);
+assert.ok(port.reason.includes("in use on this computer by java (PID 412), so AnxHost picked 25566"), port.reason);
 assert.strictEqual(defaults.isPortFree(25565, owners), false);
 assert.strictEqual(defaults.isPortFree(25566, owners), true);
 assert.strictEqual(defaults.isPortFree(25566, owners, { truncated: true }), null, "a truncated list never proves a port free");

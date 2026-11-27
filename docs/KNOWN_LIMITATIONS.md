@@ -28,6 +28,40 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 - Do not run the Agent as root just to bypass file, Docker, or provider permissions.
 - Local Agent automatic pairing is separate from remote Agent token workflows. Do not ask normal users to copy Local Agent tokens.
 
+## Build 217
+
+- **Memory use is about the same as Build 216 (1-3% lower).** The 15-25%
+  target was not met. The one large item is Chromium's audio service (about
+  84 MB). The startup sound, which is on by default, keeps it alive for the
+  whole session. Turning the sound off by default would save that memory; this
+  is left as an owner decision.
+- **Sign-in pages still come from `anxoscontrolcenter.org`.** The app opens
+  account pages on `anxhost.anxlabs.net`, and the website sends them on (302)
+  to the legacy host. That lasts until the owner approves:
+  - adding the new origin to the account service (Supabase functions or
+    `ANXOS_ALLOWED_ORIGINS`) and to Supabase Auth's redirect list;
+  - removing the website's 302.
+
+  The steps are in `docs/anxhost/DOMAIN_MIGRATION_PLAN.md`.
+- **Running the installer by hand while the app is open still force-closes
+  it.** The in-app Install now closes AnxHost properly first: servers stop
+  with their own stop command and pending writes are saved. AnxHost Setup
+  itself is unchanged, so starting the installer from a download while the
+  app runs still ends the app the old way (see Build 216 below). Leftover temp
+  files from such a close are moved aside at the next start, into
+  `.recovered-tmp/` in the settings folder (the newest 20 are kept), and are
+  never put back automatically.
+- **Install waits for work on this PC.** A file transfer, a server or
+  modpack install, a Docker image download, or a start, stop, restart,
+  install or settings change of a server this app runs, holds the update
+  back until it finishes. A task that is paused also holds it back; cancel it
+  to install.
+- **Not run for this build: the Docker-dependent real-app checks**
+  (`build214-ui-qa` J1, J2, P1 and `build215-ui-qa`). Docker Desktop was not
+  running on the development PC. Their other checks passed.
+- **A configurable AnxNet domain and an AnxLabs relay are not built.** The
+  investigation and proposal are in `docs/anxhost/ANXNET_INFRASTRUCTURE.md`.
+
 ## Build 216
 
 - **The product is named AnxHost Control Center, but identifiers keep AnxOS**

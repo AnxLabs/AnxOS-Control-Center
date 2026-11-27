@@ -13,7 +13,7 @@ Plan: `PLANS.md` (Build 217 section). Protocol: `AGENTS.md` (ADP).
 | 217-E Installer and update reliability | **Complete; local checkpoint commit** (not pushed). Install now closes the app through its normal shutdown (servers stopped with their own stop command, pending writes saved) before the installer opens, and waits while sensitive work runs. Orphan temp files from cut-off saves are moved aside at startup. Installer UI, signing and identifiers unchanged. |
 | 217-F Mobile | **Complete; local checkpoint commit** (not pushed). Every tap target is at least 44 px. Going offline shows at once and stops polling. A hidden page does no freshness work. Permissions, pairing, certificates and the API are unchanged. |
 | 217-D AnxNet infrastructure | **Investigation complete** (`docs/anxhost/ANXNET_INFRASTRUCTURE.md`). No code, DNS, port or service change. Recommends a configurable suffix in a later build and an AnxLabs relay only as a separately approved project. |
-| 217-G Stabilization and RC preparation | Not started |
+| 217-G Stabilization and RC preparation | **Complete locally; stopped at the RC approval gate.** Full gate run: every non-environmental check passes. Release notes, known limitations and this handoff are updated. Nothing pushed; no signed RC built. |
 
 ## Repository
 
@@ -30,6 +30,8 @@ Plan: `PLANS.md` (Build 217 section). Protocol: `AGENTS.md` (ADP).
 | 217-C and 217-D (worked on while the 217-B real-app suites ran, so the times overlap) | 2026-11-27T12:02:29-07:00 | 2026-11-27T12:30:23-07:00 | about 0 h 28 min |
 | 217-E | 2026-11-27T12:31:12-07:00 | 2026-11-27T12:40:41-07:00 | 0 h 10 min (investigation done earlier, while suites ran) |
 | 217-F | 2026-11-27T12:40:41-07:00 | 2026-11-27T12:46:12-07:00 | 0 h 06 min |
+| 217-G | 2026-11-27T12:46:38-07:00 | 2026-11-27T13:20:00-07:00 | 0 h 33 min |
+| **Build 217 total** | 2026-11-27T10:28:59-07:00 | 2026-11-27T13:20:00-07:00 | **2 h 51 min** |
 
 ## 217-A Performance
 
@@ -198,3 +200,42 @@ Not tested here: the end-to-end in-app update with a real signed installer. It n
 Already sound, not changed: polling per screen (3 s console, 5 s server, 10 s lists, 15 s sharing); back-off while the computer is unreachable; refresh when the page becomes visible; light and dark themes (Build 216-C); the console and file views; landscape layout.
 
 Validation: `mobile-polish-smoke` P1–P3 (new; P1 fails on the 217-E CSS); `mobile-ui-qa` (real app with an emulated phone) PASS 25/25, including M18 landscape with no sideways scrolling; the 6 phone smokes (gateway, pairing, claim page, polish, upgrade from 215, tab loader) PASS.
+
+## 217-G Stabilization and RC preparation
+
+### Capability, security and upgrade review
+
+- **Capabilities:** 1,573 inventoried rows, 0 unmapped, UI matches (`anxhost-capability-inventory --check`, in `rc:validate`). No capability was removed in Build 217.
+- **Security:**
+  - The sign-in host list only grew (both hosts; a look-alike host is refused, D3).
+  - Context isolation, IPC authorization and URL allowlists are unchanged.
+  - Orphan temp files are never restored, so a sign-out cannot be undone.
+  - The update still verifies the checksum and Authenticode publisher before the app closes and the installer opens. That code path is unchanged, and `installer-signature-smoke` S5 (a foreign-signed installer is never handed off) passes.
+  - No credential appears in any new log line: the update logs redact paths, and the orphan report lists file names only.
+- **Upgrade compatibility:**
+  - Frozen identifiers are unchanged, with 76 checks (FI-UPD-12 added, nothing removed).
+  - The settings migration covers the two old startup defaults.
+  - Phones paired with 216 keep pairing: the CA subject, CSRF header and cookie are unchanged.
+  - Agent behaviour is unchanged. Shared code that the Agent also runs (`instanceServiceCore`, `shareHealth`, policies) changed only in user-visible wording. No Agent package was built or deployed.
+- **Measured performance:** see 217-A (same-day A/B, medians), plus the final confirmation round below.
+
+### Final gate (2026-11-27, on commit `77388e44`, plus the 217-G fixes)
+
+| Check | Result |
+| --- | --- |
+| `RC_FAIL_FAST=0 npm run rc:validate` (all 443 `:smoke` suites, 12:46 to 12:59) | **441 passed, 2 failed.** The 2 are environmental and fail identically on Build 216 in this checkout: `agent:package:smoke` and `local-agent:runtime:smoke` (`node_modules` is a junction to another worktree). The tree was clean at the start and the end. |
+| Release tier (`release-validation.js --tier=release`; the 112 checks rc:validate already passed on the same commit were reused, as `--reuse-rc` does; the other 45 were run without stopping at the first failure) | **41 passed, 4 failed.** 3 were wording assertions in feature-tier smokes that rc:validate does not run (`create-server-defaults`, `restore-preview`, `home-dashboard-model`). 1 is environmental (`agent-package-closure`, the junction). All 22 real-app suites passed, including theme (69 views in both themes), tools, account, computers, acceptance fixes, window close and server-list polling. |
+| Fixes from that run | `home-dashboard-model` caught a **wrong rename**: the AnxOS Linux label (`AnxOS (Debian 12)` on Home's computer card, shown when `isAnxOS`) had become "AnxHost". It is restored; a search of the whole 217-B diff found no other operating-system use. The other three were ported to the approved wording. All four rerun: PASS. |
+| Final perf confirmation (1 round, final tree; Build 216 medians from 217-A, same day) | Shell revealed cold **2722 ms** (216: 8705, **-69%**), warm 2576 ms (216: 8375, -69%); Home idle **86 req/min** (216: 115, **-25%**); My Servers 59 req/min (216: 58); working set 496.7 MB (216: 501.3, -0.9%); private 257.9 MB (216: 264.2, -2.4%); CPU 0.62% (216: 0.96%). One round only; the 3-round medians in 217-A are the record. |
+| `git diff --check` | clean |
+
+Not run:
+- Docker-dependent checks (`build214-ui-qa` J1, J2, P1; `build215-ui-qa`): Docker Desktop is not running.
+- A real sign-in, activation and recovery: they need the owner's account.
+- The end-to-end in-app update: it needs the signed RC. Both belong in RC acceptance.
+
+## Next (needs the owner)
+
+- **Approval to push** `claude/anxhost-build-217` (8 commits after `87cf3d56`) to `dev`, then the signed RC build, the RC report, and `confirmed` for the in-place upgrade (ADP release workflow).
+- **Owner decisions:** the startup sound's default (memory); the 217-C production steps (Supabase origins, Auth redirect list, removing the website's sign-in 302).
+- **Housekeeping:** the scratch worktree `b216` used for the A/B comparison is removed at the end of this session.

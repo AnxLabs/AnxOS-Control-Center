@@ -3,7 +3,7 @@
 This file holds the plan of the build in progress first, then the plans of
 earlier builds, kept unchanged as the record.
 
-- **Build 217: Operation Refinement** (in progress, below)
+- **Build 217: Operation Refinement** (local development complete and stopped at the RC approval gate, below)
 - **Build 216: AnxHost CC Rebirth** (complete; published 2026-11-27, see
   "Build 216" further down)
 
@@ -14,7 +14,7 @@ earlier builds, kept unchanged as the record.
 | Field | Value |
 | --- | --- |
 | Product | **AnxHost Control Center v2.0 Build 217** |
-| Status | Plan written 2026-11-27 from the owner's Build 217 brief. Local development under way; nothing pushed. |
+| Status | Plan written 2026-11-27 from the owner's Build 217 brief. Phases 217-A to 217-G done locally (checkpoint commits, nothing pushed); stopped at the RC approval gate. Record: `docs/HANDOFF_BUILD217.md`. |
 | Baseline | `origin/dev` at `87cf3d56`. Build 216 was published from `1212d772` (`v2.0-build216`), and the website has been canonical on `anxhost.anxlabs.net` since 2026-11-27. |
 | Development branch | `claude/anxhost-build-217`, created from `87cf3d56` |
 | Governing protocol | `AGENTS.md` (ADP) |
@@ -219,6 +219,10 @@ The ADP Approval Matrix applies, plus:
 | Date | Decision |
 | --- | --- |
 | 2026-11-27 | Build 217 "Operation Refinement" from the owner's brief: phases 217-A to 217-G, solo, no Ultracode, no `/goal`; refine rather than redesign; production changes separately approved. |
+| 2026-11-27 | 217-A: the startup sound's default (84 MB audio service, the bulk of the memory target) is left to the owner; nothing changed. |
+| 2026-11-27 | 217-C: the app opens account pages on `anxhost.anxlabs.net` and trusts both hosts (FI-UPD-12); the website's sign-in 302, Supabase origins and the Auth redirect list stay as they are until approved. |
+| 2026-11-27 | 217-E: in-app Install closes the app through its normal shutdown and opens the installer last; orphan temp files are moved aside, never restored (sign-out deletes session files). AnxHost Setup itself unchanged. |
+| 2026-11-27 | 217-D: investigation only; a configurable AnxNet suffix is a later-build feature, and an AnxLabs relay is a separately approved project. |
 
 ---
 

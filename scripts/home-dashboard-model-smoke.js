@@ -93,7 +93,7 @@ const duplicates = model.buildAttentionItems({
   now: NOW,
 }).filter((item) => item.id.startsWith("duplicate:"));
 assert.strictEqual(duplicates.length, 1, "one item per duplicated Agent");
-assert.ok(duplicates[0].detail.includes("Anxlab (LAN) and Anxlab (Tailscale) are the same AnxOS Agent"), duplicates[0].detail);
+assert.ok(duplicates[0].detail.includes("Anxlab (LAN) and Anxlab (Tailscale) are the same AnxHost Agent"), duplicates[0].detail);
 assert.deepStrictEqual(model.findDuplicateComputers([{ id: "x" }, { id: "y" }]), [], "computers without a device id are never called duplicates");
 console.log("PASS H3 Needs attention covers computers, servers, disk and readings");
 

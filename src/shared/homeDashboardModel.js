@@ -224,7 +224,7 @@
       selected: Boolean(computer.selected),
       connection: computer.connection,
       connectionLabel: CONNECTION_LABELS[computer.connection] || "Unknown",
-      os: computer.isAnxOS ? `AnxHost${os ? ` (${os})` : ""}` : os || "",
+      os: computer.isAnxOS ? `AnxOS${os ? ` (${os})` : ""}` : os || "",
       freshness: connected ? freshness.state : "unavailable",
       freshnessLabel: !connected
         ? "Not connected"

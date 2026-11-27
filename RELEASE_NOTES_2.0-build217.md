@@ -1,8 +1,6 @@
 # AnxHost Control Center v2.0 — Build 217
 
-Build 217 is a refinement release: a faster start, quieter background work, and the last "AnxOS" wording replaced on screen. Your servers, computers, settings, backups, SSH profiles and paired phones carry over when you update.
-
-> Draft: completed during 217-G. Sections are filled in as each phase is finished.
+Build 217 is a refinement release: the app is ready sooner and does less work in the background, updates install without cutting anything off, the phone app is easier to tap, and the last "AnxOS" wording on screen now says AnxHost. Your servers, computers, settings, backups, SSH profiles and paired phones carry over when you update.
 
 ## Added
 
@@ -10,20 +8,31 @@ Build 217 is a refinement release: a faster start, quieter background work, and 
 
 ## Changed
 
-- **The app is ready sooner.** The startup screen now lasts at least 0.9 s instead of 4.2 s, and it no longer waits for readings that cannot arrive while the app is locked. Startup times you chose yourself in Settings are kept.
-- **The remaining "AnxOS" wording on screen now says AnxHost**, in messages, dialogs, tooltips and notifications. File, folder, package, task and service names keep "AnxOS" so updates stay in place.
+- **The app is ready sooner.** The startup screen now lasts at least 0.9 s instead of 4.2 s, and it no longer waits for readings that cannot arrive while the app is locked. In our measurements the main window appeared about 65% sooner (8.7 s to 3.1 s). Startup times you chose yourself in Settings are kept.
+- **Installing an update closes AnxHost properly first.** Servers on this PC are stopped with their own stop command, so worlds are saved, and pending changes are written before the installer opens. Until now the installer forced the app closed. If a file transfer, a server install or another task is still running, Install asks you to wait for it, and it asks before discarding unsaved edits.
+- **The AnxHost website is now `anxhost.anxlabs.net`.** Account pages open there and update checks read it first. `anxoscontrolcenter.org` keeps working for every installed version.
+- **Phone Access is easier to tap.** Every button, tab and breadcrumb is at least 44 px tall, and the phone says at once when it loses its connection.
+- **The remaining "AnxOS" wording on screen now says AnxHost**, in messages, dialogs, tooltips, notifications and the phone app. File, folder, package, task and service names keep "AnxOS" so updates stay in place.
 
 ## Fixed
 
-- **My Servers rebuilt every row's buttons every 5 seconds**, so Start and Stop flickered and the page did extra work even when nothing had changed. Rows now change only when a server does.
-- **Home asked the Agent for AMP every 2 seconds** even when AMP was not set up on that computer. It now checks once a minute until AMP is configured.
+- **My Servers rebuilt every row's buttons every 5 seconds**, so Start and Stop flickered and the page did extra work when nothing had changed. Rows now change only when a server does.
+- **Home asked the Agent for AMP every 2 seconds** even when AMP was not set up on that computer. It now checks once a minute until AMP is configured, and Home makes about a quarter fewer requests while idle.
+- **In the light theme, the health chips in Computer details** ("Checked", "Issues", "Workspace") were too faint to read comfortably. They now meet contrast guidelines.
+- **Temp files from a save that was cut off** (for example by a forced close) were left in the settings folder for good. AnxHost now moves them aside at startup.
+- **An update that was cut off before its installer opened** now shows the same guidance as an unconfirmed install, instead of looking as if it was still in progress.
 
 ## Known limitations
 
+- Memory use is about the same as Build 216. Most of the remaining difference would come from turning the startup sound off by default, which is left as an owner decision.
+- Sign-in pages still open from `anxoscontrolcenter.org` behind the scenes, until the account service is set up to trust the new address.
 - Package, file and folder names keep "AnxOS" (`AnxOS-Agent-*.deb`, the `AnxHub` data folder, the `AnxOSAgent` task) so updates stay in place.
 - See `docs/KNOWN_LIMITATIONS.md` for the full list.
 
 ## QA
 
-- Startup and idle work were measured the same day against Build 216 with `npm run perf:baseline` (medians; see `docs/HANDOFF_BUILD217.md`).
-- Every one of the 1,573 mapped features stays in the capability inventory.
+- Startup and idle work were measured the same day against Build 216 with `npm run perf:baseline`, comparing medians.
+- Every one of the 1,573 mapped features is still in the capability inventory and still mapped to the UI.
+- The light and dark themes were checked over 69 views with no text below WCAG AA contrast.
+- The phone app was checked on an emulated phone, in portrait and landscape.
+- New regression checks cover the startup screen, AMP polling, the server list, search, the primary website, the update handoff and orphan temp files, and phone tap targets.
