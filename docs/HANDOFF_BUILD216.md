@@ -1980,6 +1980,43 @@ status served; no `Cannot find module`). `.deb` SHA-256
 `049db5694373631d711c0af167f6b8ee72cb10f9254a59455a9875f1ebd4c759`.
 A new signed RC1 must be built from these commits and accepted again.
 
+### RC1 (current): run 45937421193, commit `32864023`
+
+Pushed to `dev` with the owner's approval (fast-forward `65df856c..32864023`)
+and built by `windows-release.yml` (workflow_dispatch; publish skipped). All
+jobs green; the new in-build package check passed on the `.deb`, the AppImage
+and `win-unpacked` (314 desktop modules, 0 unresolved, Agent copies present).
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `AnxOS-Control-Center-Setup-2.0-build216.exe` (441,547,976 bytes) | `1626c22dd2fa0c7f8a722035c2b4e40a5a53a6fbc4ab69e03c68552a2854cab0` |
+| embedded engine (440,508,840 bytes, not published) | `1bcaff917a68ab66fef6fe97cca776a3f350ef901a857ba195e36c9a5e54a583` |
+| `AnxOS-Control-Center-2.0-build216-portable.exe` | `2040d9960f036b1999e9e338be5b2fd6a1ec4cc7e88b972a51ec773ea57d9838` |
+| `AnxOS-Control-Center-2.0-build216.deb` | `21b3cd1e614d07cab7f6fe1532da6970533d31bcc452dc258ade167c25781926` |
+| `AnxOS-Control-Center-2.0-build216.AppImage` | `a48557319ba4e5856328f1209baa82ee8dd908735f35d73036bb42d96a4ee4c4` |
+| `AnxOS-Agent-2.0-build216.deb` | `5efd909a810ce38941648e533028122be654bed7bbb598fda148217c625f1d5c` |
+| `latest.yml` | `2530650f0a2899f7f570ee4ff14d229e4971944193e110fbb5f90f94adc575f6` |
+
+- Artifact checks 10/10: Setup and engine Authenticode Valid (CN=Anjo
+  ROSIMO, issuer Microsoft ID Verified CS EOC CA 04); engine hash compiled
+  into Setup; Setup imports no VC runtime; `latest.yml` and blockmap describe
+  Setup; exactly one Setup asset, picked by Build 215's updater; the publish
+  job's manifest/SHA256SUMS/validation steps pass locally. CI verified 92
+  executables and 652 signed files.
+- Linux (WSL Ubuntu 24.04, the CI packages above): both pass
+  `verify-packaged-app` and open from a clean profile (ready-to-show,
+  renderer loaded, shown and focused; AnxNet status served; no
+  `Cannot find module`; no uncaught exception).
+- Windows Sandbox, Smart App Control enforced, all scenarios pass: fresh
+  install (measured progress, Helper running, 625 files signed, app opens),
+  Options fits the window (`rc1-options-fresh.png`), repair while the app
+  runs, uninstall through Setup's window with data kept, silent install,
+  Build 215 upgrade, interrupted upgrade recovered with Try again, silent
+  upgrade, WebView2 fallback. Data unchanged and Agent identity identical in
+  every upgrade; no NSIS or console window in normal setup; 0 Code Integrity
+  blocks.
+- Waiting for the owner's `confirmed` before installing over the real app.
+
 ### 216-G remaining risks
 
 - The real-app UI suites are still sensitive to a busy machine (as recorded
