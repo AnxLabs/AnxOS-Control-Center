@@ -478,6 +478,7 @@
     "versioning:smoke": "node scripts/versioning-smoke.js",
     "rc-reuse:smoke": "node scripts/rc-reuse-smoke.js",
     "anxhost-setup-contract:smoke": "node scripts/anxhost-setup-contract-smoke.js",
+    "packaged-app-contents:smoke": "node scripts/packaged-app-contents-smoke.js",
     "setup:test": "cargo test --manifest-path windows/setup/Cargo.toml",
     "setup:build": "node scripts/build-anxhost-setup.js maintenance",
     "notifications:smoke": "node scripts/notification-center-smoke.js",
@@ -572,8 +573,25 @@
           "!**/*.map"
         ]
       },
+      {
+        "from": "src/anxnet",
+        "to": "src/anxnet",
+        "filter": [
+          "**/*.js",
+          "!**/*.map"
+        ]
+      },
       "agent/package.json",
       "agent/src/**/*",
+      {
+        "from": "agent",
+        "to": "agent",
+        "filter": [
+          "package.json",
+          "src/**/*",
+          "!**/*.map"
+        ]
+      },
       "package.json",
       "node_modules/**/*"
     ],

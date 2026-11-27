@@ -178,6 +178,35 @@ try {
   process.exit(1);
 }
 
+// Issue #54: prove the finished packages contain what the app requires before
+// anything is uploaded (scripts/verify-packaged-app.js). On Linux: the final
+// .deb and AppImage. On Windows: the unpacked app the installer was made from.
+function verifyBuiltPackages(artifactVersion) {
+  const { verifyTarget } = require("./verify-packaged-app");
+  const dist = path.join(process.cwd(), "dist");
+  const targets = [];
+  if (process.platform === "linux") {
+    for (const name of fs.existsSync(dist) ? fs.readdirSync(dist) : []) {
+      if (name.includes(artifactVersion) && /\.(deb|AppImage)$/.test(name) && !name.startsWith("AnxOS-Agent-")) targets.push(path.join(dist, name));
+    }
+  } else if (process.platform === "win32" && fs.existsSync(path.join(dist, "win-unpacked"))) {
+    targets.push(path.join(dist, "win-unpacked"));
+  }
+  let ok = true;
+  for (const target of targets) {
+    try {
+      const result = verifyTarget(target);
+      for (const line of result.lines) console.log(line);
+      ok = ok && result.ok;
+    } catch (error) {
+      console.error(`FAIL ${path.basename(target)}: ${error.message}`);
+      ok = false;
+    }
+  }
+  if (!ok) console.error("The packaged app is incomplete (scripts/verify-packaged-app.js); nothing was published.");
+  return ok;
+}
+
 prepareWindowsInstallerToolsets().then(async (toolsetEnv) => {
   const result = spawnSync(
     process.platform === "win32" ? "electron-builder.cmd" : "electron-builder",
@@ -221,6 +250,7 @@ prepareWindowsInstallerToolsets().then(async (toolsetEnv) => {
       process.exit(1);
     }
   }
+  if (!verifyBuiltPackages(info.artifactVersion)) process.exit(1);
   process.exit(0);
 }, (error) => {
   console.error(`Preparing signed NSIS toolsets failed: ${error.message}`);
