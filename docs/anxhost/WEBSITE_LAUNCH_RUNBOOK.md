@@ -17,8 +17,8 @@ read-only at each stage and exits 1 on a failure.
 | --- | --- |
 | `anxhost.anxlabs.net` DNS | Done by the owner. It resolves through Cloudflare, Pages validated it, and the certificate is from Google Trust Services, valid to 2027-02-25. `--stage=dns` passes 3 of 3. |
 | Production deploy path | Only `cloudflare-pages-deploy.yml`. Git pushes no longer deploy production (`production_deployments_enabled: false`; other branches still get preview builds). It is dispatched by hand or by `promote-release.yml`. A manual `wrangler pages deploy --branch dev` with the account's credentials would also reach production; don't use it. |
-| Live production | **Phase 1 done (2026-11-27 10:15 UTC).** Deployment `30ca9e00` from `dev` at `5e3e2f8f` by the guarded workflow (run 45980416158; the guard passed and IndexNow accepted 10 pages). The previous production deployment, `591a93d0`, is the rollback target. |
-| Pushes | `dev` was fast-forwarded `1212d772..5e3e2f8f`. Cloudflare recorded the push as production deployment `30066a4d` with `is_skipped: true` and every stage idle: nothing was built or deployed from the push. |
+| Live production | **Phase 3 done (2026-11-27 11:01 UTC).** Deployment `2d2a0bab` from `dev` at `17c2268a` by the guarded workflow (run 45986843514). `anxhost.anxlabs.net` is canonical and ordinary legacy pages answer 301. Rollback targets: `f198efcf` (Build 216, legacy canonical), then `30ca9e00` (Phase 1). |
+| Pushes | Every `dev` push this day (`5e3e2f8f`, `ff17686b`, the promotion bot's `f70f3dcd`, `7dd20cf1`, `17c2268a`) was recorded by Cloudflare with `is_skipped: true`; production changed only through the guarded workflow. |
 
 ## Phase 1 — Deploy the redesigned website and the download fix
 
@@ -49,6 +49,8 @@ Nothing is redirected; the legacy host stays canonical.
 
 ## Phase 2 — Publish Build 216
 
+**Result, 2026-11-27:** published. `v2.0-build216` was tagged on RC3 `1212d772` (release run 45981090809, all five jobs passed) and promoted (run 45985507193, website commit `f70f3dcd`, deployment `f198efcf`). Details are in `docs/HANDOFF_BUILD216.md` under "Published".
+
 **Approval:** `🚀 publish`. This follows the ADP release workflow.
 
 `promote-release.yml` does the following:
@@ -63,6 +65,20 @@ After it, rerun `--stage=deployed`. Download links now resolve to Build 216, and
 Doing Phase 1 first means the download fix is live before Build 216 downloads start.
 
 ## Phase 3 — Make anxhost.anxlabs.net canonical
+
+**Result, 2026-11-27 (owner approved):**
+
+- Switched in `17c2268a` (22 files: 19 website files and the two README release sections). The website tier passed 18 of 18, and the frozen-identifier and brand checks passed.
+- Deployed by run 45986843514 as deployment `2d2a0bab`. IndexNow accepted the 10 new-host pages (HTTP 202).
+- `--stage=switched` passed 11 of 11, and `--stage=dns` 3 of 3.
+- Further live checks (34 of 34 after two corrected expectations):
+  - All 10 sitemap pages answer 301 from legacy to the same path and query on the new host; there they are 200, indexable, and their canonical is themselves.
+  - Legacy sign-in pages (account, activate, signin, signup, profile, forgot and reset password) answer 200 and keep their legacy canonical. `/device-login.html` still reaches legacy `/activate` with the code.
+  - `www` pages go to the new host; `www` sign-in goes to the legacy host.
+  - Legacy `config.js` (Build 216, `siteUrl` new host), `account-config.js` (legacy) and `release-notes.json` answer 200.
+  - The new host serves all RC3 screenshots byte for byte, and 32 of 32 new-host download requests redirect to Build 216.
+  - POSTs are not redirected.
+  - `/assets/anxos-logo.png` is 404. It was retired on 2026-11-25 (`f8d9dfc2`), and no page, README or release text uses it.
 
 **Approvals:** redirect production traffic, then commit, push and deploy.
 
@@ -83,7 +99,7 @@ Doing Phase 1 first means the download fix is live before Build 216 downloads st
    - Google Search Console and Bing Webmaster Tools: add `https://anxhost.anxlabs.net/`, or a Domain property for `anxlabs.net` (DNS TXT verification), and submit `https://anxhost.anxlabs.net/sitemap.xml`. Keep the legacy properties.
    - Use Change of Address or Site Move if the console offers it for this move.
    - The deploy workflow already sends the changed pages to IndexNow. Run `npm run website:indexnow -- --submit --all` once if every page should be resubmitted.
-5. The Releases repository README picks up the new host at the next promotion. Until then it keeps linking to the legacy host, which redirects.
+5. The Releases repository README picks up the new host in its release section at the next promotion (its header was renamed on 2026-11-27, commit `c5c77c20`). Until then it keeps linking to the legacy host, which redirects.
 6. **Rollback:** `node scripts/website-hosts.js --switch=legacy`, then `release-docs`, `website-sitemap`, commit and the guarded deploy. Or roll back the Pages deployment.
 
 ## Phase 4 — Build 217 (app; separate approvals)

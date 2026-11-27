@@ -16,12 +16,12 @@ each need a separate approval.
 | Step | State |
 | --- | --- |
 | Production deploys only from the guarded workflow | **Done.** The Pages project `anxos-control-center` had Git integration deploying every push to `dev` to production. `production_deployments_enabled` is now `false`, so pushes to `dev` no longer deploy production (other branches still get preview builds). Production changes only through `cloudflare-pages-deploy.yml` (`wrangler pages deploy`, which checks the site against the stable release). |
-| `anxhost.anxlabs.net` on the Pages project | **Added as a custom domain, waiting for its DNS record.** Cloudflare reports `CNAME record not set`; the wrangler login used here has no DNS write scope. Owner step: in the `anxlabs.net` zone add `CNAME anxhost → anxos-control-center.pages.dev`, proxied. Cloudflare then validates the hostname and issues its certificate. |
-| Download API 502s | **Fixed in the worker, not deployed.** Cause: GitHub's API answered the worker's uncached, unauthenticated lookups with 403 (shared-IP rate limit). See `website/_worker.js` and `scripts/website-download-resilience-smoke.js`. |
-| Host-aware routing | **Prepared, not deployed.** `website/_worker.js` ships with the legacy host canonical: the new host serves the same pages marked `noindex` and sends sign-in pages to the legacy host. |
-| Canonical switch and 301s | **Prepared, needs approval** (redirects production traffic). One command: `node scripts/website-hosts.js --switch=new`, then `node scripts/website-sitemap.js` and the website tier. |
+| `anxhost.anxlabs.net` on the Pages project | **Done.** The owner added the DNS record. Pages validated the domain at 10:06 UTC, and its certificate is from Google Trust Services, valid to 2027-02-25. |
+| Download API 502s | **Fixed and live (Phase 1).** Cause: GitHub's API answered the worker's uncached, unauthenticated lookups with 403 (shared-IP rate limit). See `website/_worker.js` and `scripts/website-download-resilience-smoke.js`. |
+| Host-aware routing | **Live.** `website/_worker.js` decides by host (table below). |
+| Canonical switch and 301s | **Done (Phase 3, owner approved, 2026-11-27).** `17c2268a`, deployment `2d2a0bab`; see `WEBSITE_LAUNCH_RUNBOOK.md`. |
 | Sign-in on the new host | **Not started; needs approval** (authentication policy) and Build 217. |
-| Search engines | **Prepared, owner accounts needed** (checklist below). |
+| Search engines | **IndexNow done** (10 new-host pages accepted). **Google and Bing need the owner's accounts** (checklist below). |
 
 ## How the two hosts behave
 

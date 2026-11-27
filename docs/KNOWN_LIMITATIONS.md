@@ -41,10 +41,10 @@ These limitations are acceptable for Private Alpha if they are clearly communica
   which deployed every push to `dev` to production (the live site matched
   `f8d9dfc2` and later, still describing Build 215). Since 2026-11-27 the
   Pages project no longer deploys `dev` pushes; production changes only
-  through the guarded `cloudflare-pages-deploy.yml`. The redesigned website,
-  the download fix and the host routing are not deployed. The website is
-  moving to `anxhost.anxlabs.net`, with `anxoscontrolcenter.org` kept for
-  installed apps (`docs/anxhost/DOMAIN_MIGRATION_PLAN.md`).
+  through the guarded `cloudflare-pages-deploy.yml`. The website now lives on `anxhost.anxlabs.net` (canonical since
+  2026-11-27). `anxoscontrolcenter.org` sends ordinary pages there with a
+  301 and keeps serving installed apps directly: sign-in, `config.js`,
+  `release-notes.json` and downloads (`docs/anxhost/DOMAIN_MIGRATION_PLAN.md`).
 - **The app still says "AnxOS" in places.** Build 216 renamed the shell,
   title bar, tray and settings, but some screens keep the old name in their
   text: Add Computer ("AnxOS Agent", "Install AnxOS there"), Settings
