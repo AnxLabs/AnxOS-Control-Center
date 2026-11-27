@@ -48,6 +48,18 @@ for (const file of ["main.js", "preload.js"]) {
   }
 }
 try {
+  // R2 (216-B1, FROZEN_IDENTIFIERS.md): the tray, window and startup-problem
+  // titles in main.js show the product name; RC1 acceptance found the tray
+  // still saying "AnxOS Control Center". Identifiers (exe name, appId) do not
+  // appear as this exact text in main.js.
+  const main = fs.readFileSync(path.join(ROOT, "main.js"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+  assert(!/["'`]AnxOS Control Center|AnxOS startup problem|Open AnxOS Control Center/.test(main), "main.js still shows the old product name");
+  assert(/const PRODUCT_NAME = require\("\.\/src\/shared\/productBrand"\)\.productName/.test(main), "main.js takes the product name from productBrand");
+  results.push("PASS R2 main.js shows the product name");
+} catch (error) {
+  results.push(`FAIL R2 main.js shows the product name\n  ${error.message}`);
+}
+try {
   assert.deepStrictEqual(undefinedCalls("function a() {}\na();\nb();\n// c();\nconst d = () => e => f(e);\n"), ["b", "f"], "the check itself finds b() and f(), not a(), commented c() or e");
   results.push("PASS R1 self-test");
 } catch (error) {

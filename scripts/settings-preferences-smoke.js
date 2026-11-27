@@ -10,7 +10,8 @@ const prefs = require("../src/services/settingsPreferenceService");
 
 try {
   const initial = prefs.readPreferences();
-  assert.strictEqual(initial.settings["app.displayName"], "AnxOS Control Center");
+  // 216-B1: the default display name is the new product name.
+  assert.strictEqual(initial.settings["app.displayName"], require("../src/shared/productBrand").productName);
   assert.strictEqual(initial.settings["interface.guidedMode"], true, "clean first-launch settings should enable Guided Mode.");
   assert.strictEqual(initial.settings["interface.advancedMode"], false, "Advanced Mode should default off.");
   assert(initial.definitions["appearance.accentColor"], "setting definitions should be returned for renderer metadata.");

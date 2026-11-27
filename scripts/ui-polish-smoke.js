@@ -198,7 +198,8 @@ assert(main.includes("requestSingleInstanceLock") && main.includes("second-insta
   "second-instance",
   "renderer-process-gone",
   "renderer-fail-load",
-  "AnxOS Control Center failed to load",
+  // 216-B1: the load-failure dialog is titled with the product name.
+  "${PRODUCT_NAME} failed to load",
 ].forEach((needle) => assert(main.includes(needle), `Main window launch recovery must include ${needle}.`));
 assert(main.includes("show: false") && main.includes("showMainWindow(\"did-finish-load\")") && main.includes("showMainWindow(\"ready-to-show\")"), "Main window must not depend only on ready-to-show before becoming visible.");
 assert(

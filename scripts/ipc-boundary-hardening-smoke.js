@@ -117,6 +117,8 @@ function loadMainWindowFactories() {
     if (request === "./package.json") return originalLoad.apply(this, arguments);
     // The navigation guard is the code under test: load it for real.
     if (/windowNavigationGuard$/.test(request)) return originalLoad.apply(this, arguments);
+    // The product name (pure data) is part of the window title under test.
+    if (/productBrand$/.test(request)) return originalLoad.apply(this, arguments);
     if (request.startsWith("./") || request.startsWith("../")) return deep;
     if (request === "child_process") return deep;
     return originalLoad.apply(this, arguments);
@@ -160,7 +162,8 @@ async function checkNavigationBoundary() {
     assert(win, `window "${needle}" was not created`);
     return win;
   };
-  const mainWindow = windows.find((candidate) => candidate.opts.title === "AnxOS Control Center");
+  // 216-B1: the main window is titled with the product name.
+  const mainWindow = windows.find((candidate) => candidate.opts.title === require("../src/shared/productBrand").productName);
   assert(mainWindow, "main window was not created");
   const diagnostic = byTitle("diag");
   // Build 216 retired the Marketplace, Create Server and Add Storage windows

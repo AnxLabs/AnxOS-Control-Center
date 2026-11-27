@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { app } = require("electron");
 const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
+const PRODUCT_BRAND = require("../shared/productBrand");
 
 const SETTINGS_SCHEMA_VERSION = 1;
 const ONBOARDING_VERSION = 1;
@@ -16,7 +17,7 @@ class SettingsStoreError extends Error {
 }
 
 const SETTING_DEFINITIONS = {
-  "app.displayName": { category: "general", type: "string", default: "AnxOS Control Center", maxLength: 48 },
+  "app.displayName": { category: "general", type: "string", default: PRODUCT_BRAND.productName, maxLength: 48 },
   "general.defaultPage": { category: "general", type: "enum", default: "dashboard", values: ["dashboard", "instances", "marketplace", "network", "minecraft", "amp", "playit", "docker", "ssh", "files", "console", "backups", "operations", "notifications", "maintenance", "security", "nodes", "agent-control", "coolpals", "settings"] },
   "general.restorePreviousPage": { category: "general", type: "boolean", default: true },
   "general.confirmDestructiveActions": { category: "general", type: "boolean", default: true },
@@ -199,8 +200,24 @@ function persistSettings(settings) {
   fs.renameSync(temp, target);
 }
 
+// 216-B1: a saved display name that is still an old product default becomes
+// the new product name. Only that field is rewritten, in the raw file, so no
+// other saved key (known or not) can be dropped. A name the user typed is kept.
+function migrateLegacyDisplayName(exists, raw) {
+  const stored = raw?.settings?.["app.displayName"];
+  if (!exists || typeof stored !== "string" || !PRODUCT_BRAND.legacyDefaultDisplayNames.includes(stored.trim())) return false;
+  const target = getSettingsPath();
+  const next = { ...raw, settings: { ...raw.settings, "app.displayName": PRODUCT_BRAND.productName } };
+  const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temp, target);
+  raw.settings["app.displayName"] = PRODUCT_BRAND.productName;
+  return true;
+}
+
 function readPreferences() {
   const { exists, raw } = readRawFile();
+  if (Number.isInteger(raw?.schemaVersion) && raw.schemaVersion === SETTINGS_SCHEMA_VERSION) migrateLegacyDisplayName(exists, raw);
   const schemaVersion = Number.isInteger(raw?.schemaVersion) ? raw.schemaVersion : 0;
   if (schemaVersion > SETTINGS_SCHEMA_VERSION) {
     throw new SettingsStoreError(

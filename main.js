@@ -23,6 +23,8 @@ const { registerOwnerWorkspaceIpc } = require("./src/ipc/ownerWorkspaceIpc");
 const { registerPlayitIpc } = require("./src/ipc/playitIpc");
 const { registerPublicAccessIpc } = require("./src/ipc/publicAccessIpc");
 const { registerAnxNetIpc } = require("./src/ipc/anxnetIpc");
+// Visible product name (216-B1); internal identifiers stay AnxOS (FROZEN_IDENTIFIERS.md).
+const PRODUCT_NAME = require("./src/shared/productBrand").productName;
 const anxnetService = require("./src/services/anxnetService");
 const { registerMobileGatewayIpc } = require("./src/ipc/mobileGatewayIpc");
 const mobileGatewayService = require("./src/services/mobileGatewayService");
@@ -147,7 +149,7 @@ function getRuntimeInfo() {
   const release = getReleaseInfo();
   const buildMetadata = readBuildMetadata();
   return {
-    name: "AnxOS Control Center",
+    name: PRODUCT_NAME,
     version: release.versionLabel,
     releaseVersion: release.version,
     build: release.buildLabel,
@@ -429,7 +431,12 @@ function ensureMainWindowVisible(reason = "ensure-visible", options = {}) {
     createWindow({ showReason: reason });
     return false;
   }
+  // A window hidden to the tray (or minimized) is not visible by design: show
+  // it first, and recreate it only if it is still unusable after a real
+  // attempt. Recreating discards the renderer's state (open SSH sessions,
+  // unsaved edits), which reopening from the tray must not do.
   if (options.recreateIfUnusable && !isUsableVisibleWindow(mainWindow)) {
+    if (showAndFocusWindow(mainWindow, `${reason}:show-before-recreate`)) return true;
     logWindowLifecycle("window-recreate-unusable", "Main window remained unusable after recovery attempt; recreating it.", {
       reason,
       visible: mainWindow.isVisible(),
@@ -526,10 +533,10 @@ function showMainWindowFromTray(reason = "tray") {
 function createTray() {
   if (tray || qaMode) return tray;
   tray = new Tray(APP_ICON_PATH);
-  tray.setToolTip("AnxOS Control Center");
+  tray.setToolTip(PRODUCT_NAME);
   tray.setContextMenu(Menu.buildFromTemplate([
     {
-      label: "Open AnxOS Control Center",
+      label: `Open ${PRODUCT_NAME}`,
       click: () => showMainWindowFromTray("tray-menu"),
     },
     { type: "separator" },
@@ -575,7 +582,7 @@ function createStartupDiagnosticWindow(title, detail, context = {}) {
     openSource: "diagnostic-window-open",
     navigationSource: "diagnostic-window-navigation",
   });
-  const escapedTitle = String(title || "AnxOS startup problem").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+  const escapedTitle = String(title || `${PRODUCT_NAME} startup problem`).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
   const escapedDetail = String(detail || "The app window could not be opened.").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
   const escapedContext = JSON.stringify(context || {}, null, 2).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
   diagnosticWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
@@ -660,7 +667,7 @@ function createWindow(options = {}) {
     y: windowState.y,
     minWidth: 900,
     minHeight: 640,
-    title: "AnxOS Control Center",
+    title: PRODUCT_NAME,
     icon: APP_ICON_PATH,
     backgroundColor: "#07020f",
     autoHideMenuBar: true,
@@ -760,7 +767,7 @@ function createWindow(options = {}) {
     logWindowLifecycle("renderer-process-gone", "Main window renderer process exited.", context, "error");
     if (qaMode) console.error("[Desktop] QA renderer process exited.", context);
     completeWindowStartupAttempt("failed", { reason: "renderer-process-gone", ...context });
-    createStartupDiagnosticWindow("AnxOS Control Center renderer stopped", "The app renderer stopped before the main window became usable. AnxOS is recreating the window with safe bounds.", context);
+    createStartupDiagnosticWindow(`${PRODUCT_NAME} renderer stopped`, "The app renderer stopped before the main window became usable. AnxHost is recreating the window with safe bounds.", context);
     recreateMainWindow("renderer-process-gone");
   });
   window.webContents.on("did-fail-load", (_, errorCode, errorDescription, validatedUrl, isMainFrame) => {
@@ -769,8 +776,8 @@ function createWindow(options = {}) {
     logWindowLifecycle("renderer-fail-load", "Main window failed to load.", context, "error");
     if (qaMode) console.error("[Desktop] QA main window failed to load.", context);
     completeWindowStartupAttempt("failed", { reason: "did-fail-load", ...context });
-    dialog.showErrorBox("AnxOS Control Center failed to load", `${errorDescription || "The app window could not load."} (${errorCode})`);
-    createStartupDiagnosticWindow("AnxOS Control Center failed to load", `${errorDescription || "The app window could not load."} (${errorCode})`, context);
+    dialog.showErrorBox(`${PRODUCT_NAME} failed to load`, `${errorDescription || "The app window could not load."} (${errorCode})`);
+    createStartupDiagnosticWindow(`${PRODUCT_NAME} failed to load`, `${errorDescription || "The app window could not load."} (${errorCode})`, context);
   });
 
   logWindowLifecycle("load-start", "Loading main renderer file.", { file: "index.html", qaMode });
