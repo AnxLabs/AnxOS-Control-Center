@@ -1940,6 +1940,46 @@ the gate** (ports helper). `qa:website` 12/12. Tree clean afterwards.
   (`DETACHED_PROCESS` makes Windows ignore `CREATE_NO_WINDOW`). Fixed in the
   next commit (`anxhost-setup-contract-smoke` S12) and rebuilt.
 
+### RC1 (signed): run 45921461347, commit `65df856c`: superseded
+
+Built by `windows-release.yml` on `dev` (workflow_dispatch; publish skipped,
+nothing released). All jobs green.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `AnxOS-Control-Center-Setup-2.0-build216.exe` (441,485,896 bytes) | `8a198650dd49ceb6c1c45f7b0c79815500d081faa323f5112c12f30b748b8277` |
+| embedded engine (440,446,760 bytes, not published) | `ca54017a379ee4dbb0bd1079c8b99a1f21e85b9efde41292cad7913c51a9dc64` |
+
+Artifact checks 10/10 (Setup and engine Authenticode Valid from CN=Anjo
+ROSIMO, engine hash compiled into Setup, `latest.yml` and blockmap describe
+Setup, exactly one Setup asset picked by Build 215's updater, the publish
+job's manifest/SHA256SUMS/validation steps pass locally). Windows Sandbox
+acceptance with Smart App Control enforced passed every scenario: fresh
+install with measured progress, repair, uninstall through Setup's window,
+silent install, Build 215 upgrade (data, Helper and Agent identity kept),
+interrupted upgrade recovered with Try again, silent upgrade, WebView2
+fallback, no NSIS or console window, 625 installed files signed, 0 Code
+Integrity blocks. Evidence: `docs/anxhost/d-installer/custom/rc1-*.png`.
+
+Superseded before installation on the owner's PC, because:
+- **#54**: its Linux `.deb` and AppImage could not start (AnxNet and
+  `agent/src` missing from `app.asar`). Fixed in `5f89754c` and
+  `301d9969`; see the AGENTS.md lesson.
+- **Setup Options overflow**: on a fresh install a long install path pushed
+  Browse and the Install button past Setup's window (`403199a1`,
+  `anxhost-setup-layout-ui-qa`).
+- **Window close**: closing the main window threw (`11c88275`).
+
+Linux verification of `11c88275` (built in WSL Ubuntu 24.04 with `npm ci` and
+`npm run dist:linux`, as the CI Linux job does; not signed or published):
+`verify-packaged-app` passes both packages (314 desktop modules, 0
+unresolved, Agent copies present); both open from a clean profile on the
+WSLg display (ready-to-show, renderer loaded, shown and focused; AnxNet
+status served; no `Cannot find module`). `.deb` SHA-256
+`ff0e8c888bce595c6a401edb936878779163f1e29adf7f86e3ee5a536e4e2880`, AppImage
+`049db5694373631d711c0af167f6b8ee72cb10f9254a59455a9875f1ebd4c759`.
+A new signed RC1 must be built from these commits and accepted again.
+
 ### 216-G remaining risks
 
 - The real-app UI suites are still sensitive to a busy machine (as recorded

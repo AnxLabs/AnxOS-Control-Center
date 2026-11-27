@@ -1427,6 +1427,68 @@ Use this section to accumulate verified project knowledge over time. Add entries
   it. When a fix is a guess, prove the cause with the real component before
   committing, as the engine-only Sandbox run did here.
 
+### 2026-11-26 — Linux packages could not start: AnxNet and agent/src missing (#54)
+
+- **Problem:** The published Build 215 desktop `.deb` and every Build 216
+  Linux package (`.deb` and AppImage) stopped before the main window:
+  `Cannot find module '../anxnet/node'`. Windows packages started.
+- **Cause:** electron-builder (app-builder-lib 26) turns every
+  `extraResources` pattern into an exclusion for the app's own file sets,
+  and tests it against each file set's *own* relative paths. The Agent's
+  copies of `src/anxnet`, `src/services` and `agent` therefore removed
+  `src/anxnet/**` and `agent/src/**` from the desktop `app.asar`. On Windows
+  the exclusions are joined with backslashes and never match, so only Linux
+  broke. `src/services` and `src/shared` had survived only because they
+  already had separately rooted `files` entries.
+- **Resolution:** `files` entries rooted at `src/anxnet` and `agent/src`
+  (plus `agent/package.json` on its own); the Agent's copies are unchanged.
+  A first attempt rooted at `agent` still lost 31 files (its relative path
+  `src/services/…` matched the exclusion for the top-level `src/services`);
+  the new package check stopped that build. `scripts/verify-packaged-app.js`
+  resolves every relative `require()` of the desktop code inside a finished
+  `.deb`, AppImage or unpacked app and checks the Agent's copies;
+  `run-electron-builder.js` runs it before anything is uploaded.
+  `packaged-app-contents-smoke` P3 emulates the exclusion rule (85 files lost
+  with the old config, 31 with the first attempt, 0 now). Rebuilt on Linux,
+  both packages open from a clean profile and serve AnxNet.
+- **Lesson:** Test a release by opening the finished package on every target
+  platform; a green build and a working Windows app say nothing about the
+  Linux `app.asar`. When the same source folder is both an app file and an
+  `extraResources` copy, root the app's file set so its relative paths cannot
+  match any `extraResources` pattern, and check the result in the package.
+
+### 2026-11-26 — Closing the main window threw (Build 216 legacy retirement)
+
+- **Problem:** Stopping the Linux app in the #54 launch test logged
+  `uncaught-exception: closeAddStorageWindow is not defined` and opened the
+  startup diagnostic window.
+- **Cause:** `f8d9dfc2` removed the separate Add Storage window and its
+  `closeAddStorageWindow()`, but left two calls in the main window's
+  `close` handler. Closing the window threw after `preventDefault()` and
+  before `window.hide()`, on every platform. `node --check` cannot see a
+  call to a missing function, and no test closed the main window.
+- **Resolution:** The calls are removed. `main-process-references-smoke`
+  checks that every bare call in `main.js` and `preload.js` names a
+  declaration; `window-close-ui-qa` closes the real app's main window and
+  fails on the old code with exactly that error.
+- **Lesson:** When removing a function, search for its callers, and test the
+  flows that only run at the end (closing, quitting, signals), not only
+  startup.
+
+## Future Improvements
+
+Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
+
+- [ ] Record proposed improvement, motivation, and affected area.
+- [ ] Assess value, risk, compatibility, security, and effort.
+- [ ] Define acceptance criteria.
+- [ ] Obtain explicit user approval before implementation.
+- [ ] Move approved work into a separately scoped task.
+
+## Workflow Changelog
+
+Record protocol changes here without removing prior entries. Add new versions above older versions.
+
 ### Version 1.0
 
 Established the AnxOS Development Protocol as the official engineering handbook. Version 1.0 includes:
