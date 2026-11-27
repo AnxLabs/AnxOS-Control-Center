@@ -11,7 +11,7 @@ Plan: `PLANS.md` (Build 217 section). Protocol: `AGENTS.md` (ADP).
 | 217-B UI polish | **Complete; local checkpoint commit** (not pushed). The last on-screen "AnxOS" wording now says AnxHost (frozen identifiers kept). Add Server search matches every word. The light theme's Computer details chips now pass contrast. 1,573 capabilities kept. |
 | 217-C Domain and account | **App side complete; local checkpoint commit** (not pushed). The app trusts both hosts, opens account pages on `anxhost.anxlabs.net`, and reads update metadata there first. **Production steps prepared, not applied** (Supabase origins, the Auth redirect list, removing the website's sign-in 302); each needs the owner's approval. |
 | 217-E Installer and update reliability | **Complete; local checkpoint commit** (not pushed). Install now closes the app through its normal shutdown (servers stopped with their own stop command, pending writes saved) before the installer opens, and waits while sensitive work runs. Orphan temp files from cut-off saves are moved aside at startup. Installer UI, signing and identifiers unchanged. |
-| 217-F Mobile | Not started |
+| 217-F Mobile | **Complete; local checkpoint commit** (not pushed). Every tap target is at least 44 px. Going offline shows at once and stops polling. A hidden page does no freshness work. Permissions, pairing, certificates and the API are unchanged. |
 | 217-D AnxNet infrastructure | **Investigation complete** (`docs/anxhost/ANXNET_INFRASTRUCTURE.md`). No code, DNS, port or service change. Recommends a configurable suffix in a later build and an AnxLabs relay only as a separately approved project. |
 | 217-G Stabilization and RC preparation | Not started |
 
@@ -29,6 +29,7 @@ Plan: `PLANS.md` (Build 217 section). Protocol: `AGENTS.md` (ADP).
 | 217-B | 2026-11-27T11:25:44-07:00 | 2026-11-27T12:28:42-07:00 | 1 h 03 min |
 | 217-C and 217-D (worked on while the 217-B real-app suites ran, so the times overlap) | 2026-11-27T12:02:29-07:00 | 2026-11-27T12:30:23-07:00 | about 0 h 28 min |
 | 217-E | 2026-11-27T12:31:12-07:00 | 2026-11-27T12:40:41-07:00 | 0 h 10 min (investigation done earlier, while suites ran) |
+| 217-F | 2026-11-27T12:40:41-07:00 | 2026-11-27T12:46:12-07:00 | 0 h 06 min |
 
 ## 217-A Performance
 
@@ -185,3 +186,15 @@ Not changed:
 | `node --check` on every changed file; `git diff --check` | PASS; clean |
 
 Not tested here: the end-to-end in-app update with a real signed installer. It needs a signed release candidate, and it is the RC acceptance's in-place upgrade step (Phase 5), which uses this exact path.
+
+## 217-F Mobile (Phone Access)
+
+| Finding | Evidence | Change |
+| --- | --- | --- |
+| Tap targets under 44 px: the back button (36), small buttons (36), server tabs (about 37) and breadcrumb buttons (about 25) | `src/mobile/web/app.css` | All are at least 44 px (Apple HIG, WCAG 2.5.5). |
+| Losing the connection showed only after the next request failed (up to the poll interval, with back-off up to 60 s) | No `offline` handler; `online` was handled | An `offline` event shows the offline banner at once and stops polling. `online` resumes as before. |
+| The 5 s freshness tick ran while the page was hidden | `setInterval` without a visibility check (polling itself already stopped while hidden) | It skips hidden pages. |
+
+Already sound, not changed: polling per screen (3 s console, 5 s server, 10 s lists, 15 s sharing); back-off while the computer is unreachable; refresh when the page becomes visible; light and dark themes (Build 216-C); the console and file views; landscape layout.
+
+Validation: `mobile-polish-smoke` P1–P3 (new; P1 fails on the 217-E CSS); `mobile-ui-qa` (real app with an emulated phone) PASS 25/25, including M18 landscape with no sideways scrolling; the 6 phone smokes (gateway, pairing, claim page, polish, upgrade from 215, tab loader) PASS.

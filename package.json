@@ -364,6 +364,7 @@
     "marketplace:smoke": "node scripts/marketplace-smoke.js",
     "marketplace-search:smoke": "node scripts/marketplace-search-smoke.js",
     "update-handoff:smoke": "node scripts/update-handoff-smoke.js",
+    "mobile-polish:smoke": "node scripts/mobile-polish-smoke.js",
     "marketplace:readiness:smoke": "node scripts/marketplace-readiness-smoke.js",
     "marketplace:file-write-retry:smoke": "node scripts/marketplace-file-write-retry-smoke.js",
     "marketplace:certification:smoke": "node scripts/marketplace-template-certification-smoke.js",

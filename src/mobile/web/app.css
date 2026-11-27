@@ -68,10 +68,11 @@ a { color: var(--accent-strong); }
   backdrop-filter: blur(10px);
 }
 
+/* 217-F: every tap target is at least 44 px (Apple HIG, WCAG 2.5.5). */
 .topbar__back {
-  width: 36px;
-  height: 36px;
-  margin-left: -8px;
+  width: 44px;
+  height: 44px;
+  margin-left: -10px;
   border: 0;
   border-radius: 10px;
   background: transparent;
@@ -321,7 +322,7 @@ a { color: var(--accent-strong); }
 .button.is-primary { border-color: var(--accent); background: var(--accent); color: var(--ahx-text-on-accent); }
 .button.is-danger { border-color: color-mix(in srgb, var(--critical) 50%, transparent); background: var(--ahx-danger-soft); color: var(--critical); }
 .button.is-quiet { border-color: var(--line); background: transparent; }
-.button.is-small { min-height: 36px; padding: 0 12px; font-size: 0.86rem; }
+.button.is-small { min-height: 44px; padding: 0 12px; font-size: 0.86rem; }
 .button:disabled { opacity: 0.45; cursor: default; }
 .button.is-wide { flex: 1; }
 
@@ -363,7 +364,10 @@ a { color: var(--accent-strong); }
 
 .server-tabs a {
   flex: none;
-  padding: 8px 14px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 14px;
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--muted);
@@ -407,7 +411,8 @@ a { color: var(--accent-strong); }
 }
 
 .breadcrumb button {
-  padding: 4px 6px;
+  min-height: 44px;
+  padding: 0 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;

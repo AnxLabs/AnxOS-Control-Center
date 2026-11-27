@@ -338,6 +338,15 @@
     else if (state.session) load({ background: true });
   });
   window.addEventListener("online", () => { if (state.session) load({ background: true }); });
+  // 217-F: the phone knows it lost its connection before the next request
+  // fails, so it says so at once and stops polling until it is back online.
+  window.addEventListener("offline", () => {
+    if (!state.session) return;
+    stopPolling();
+    state.lastError = { code: "OFFLINE", status: 0, message: "No connection." };
+    updateStatus();
+    updateBanner();
+  });
 
   backButton.addEventListener("click", () => {
     if (history.length > 1) history.back();
@@ -380,7 +389,8 @@
     bannerEl.hidden = !message;
   }
 
-  setInterval(() => { if (state.session) { updateStatus(); updateBanner(); } }, 5000);
+  // The freshness text only matters on screen; a hidden page does no work.
+  setInterval(() => { if (state.session && !document.hidden) { updateStatus(); updateBanner(); } }, 5000);
 
   // ---- Loading -------------------------------------------------------------------------
 
