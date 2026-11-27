@@ -91,6 +91,37 @@ Do these after the DNS record exists and the switch is approved and deployed.
   the functions' built-in list (additive; never remove the legacy origin).
 - Then sign-in pages can be served on the new host, and the 302s removed.
 
+## Build 217 planning item: anxoscontrolcenter.org as optional AnxNet infrastructure
+
+**Planning only (owner, 2026-11-27).** Nothing is designed, built or
+configured yet, and each step will need its own approval.
+
+Once the website is canonical on `anxhost.anxlabs.net`, the legacy domain
+could also host optional AnxNet infrastructure: DNS names for edges, plus
+relay and gateway endpoints. Today a network owner runs those on their own
+reachable machine (`src/anxnet/edge.js`, `bin/anxnet-edge.js`).
+
+Questions the plan has to answer before any work:
+
+- **Legacy duties first.** Whatever is added must never take over, shadow or
+  redirect the paths installed apps rely on: `/config.js`,
+  `/release-notes.json`, `/api/download/*`, the sign-in pages, the IndexNow
+  key, and the 301s for ordinary pages. New services would live on their own
+  subdomains (for example `relay.` or `gw.`), never on the apex paths.
+- **`.internal` names stay.** Existing `<device>.<network>.internal` addresses
+  (`src/anxnet/names.js`, `dns.js`) keep working unchanged. Any public name
+  under the legacy domain is an addition, not a replacement, and old members
+  that never learn it keep working.
+- **Opt-in and owner-controlled.** An AnxLabs-run relay or gateway must stay
+  optional. Today's rules hold: relays see only ciphertext, and gateway
+  routes need a grant signed by the network owner. A self-hosted edge stays
+  a first-class choice.
+- **Operations and cost.** Who runs and pays for the edge, abuse limits,
+  per-network quotas, logging and privacy, and what happens when it is down.
+- **Security review.** Exposing gateway ports under an AnxLabs domain means
+  AnxLabs answers for that traffic. The plan needs an abuse policy and a
+  security review before anything is exposed.
+
 ## Rollback
 
 - Routing: `node scripts/website-hosts.js --switch=legacy` and redeploy.

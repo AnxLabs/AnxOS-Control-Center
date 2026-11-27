@@ -17,10 +17,18 @@ read-only at each stage and exits 1 on a failure.
 | --- | --- |
 | `anxhost.anxlabs.net` DNS | Done by the owner. It resolves through Cloudflare, Pages validated it, and the certificate is from Google Trust Services, valid to 2027-02-25. `--stage=dns` passes 3 of 3. |
 | Production deploy path | Only `cloudflare-pages-deploy.yml`. Git pushes no longer deploy production (`production_deployments_enabled: false`; other branches still get preview builds). It is dispatched by hand or by `promote-release.yml`. A manual `wrangler pages deploy --branch dev` with the account's credentials would also reach production; don't use it. |
-| Live production | Deployment `591a93d0` (`dev` at `1212d772`, 07:22 UTC). It has the old worker: intermittent download 502s, no host routing, and `anxhost.anxlabs.net` serves the same pages, indexable, with canonicals that point to the legacy host. |
-| Local commits | `52790d96` (website, download fix, routing, switch tooling) plus this runbook's commit. Not pushed. |
+| Live production | **Phase 1 done (2026-11-27 10:15 UTC).** Deployment `30ca9e00` from `dev` at `5e3e2f8f` by the guarded workflow (run 45980416158; the guard passed and IndexNow accepted 10 pages). The previous production deployment, `591a93d0`, is the rollback target. |
+| Pushes | `dev` was fast-forwarded `1212d772..5e3e2f8f`. Cloudflare recorded the push as production deployment `30066a4d` with `is_skipped: true` and every stage idle: nothing was built or deployed from the push. |
 
 ## Phase 1 — Deploy the redesigned website and the download fix
+
+**Result, 2026-11-27:**
+
+- `--stage=deployed` passed 15 of 15, including 64 of 64 download API requests (32 per host) answering 302 to the official release, against 9 of 12 failing on the old worker.
+- `--stage=dns` passed 3 of 3. Both hosts have valid Google Trust Services certificates: legacy valid to 2027-02-06, new to 2027-02-25.
+- The redesign, `anxhost-site.css`, the logo files and all nine RC3 screenshots (PNG and WebP) match the commit byte for byte on both hosts.
+- The new host's pages are `noindex`, with legacy canonicals; its `robots.txt` names the legacy sitemap.
+- Legacy `config.js` (Build 215, legacy `siteUrl`), `account-config.js`, `release-notes.json` (55 releases, 1.6 Build 138 to 2.0 Build 215), the sign-in pages and the GitHub updater files all answer 200.
 
 **Approvals:** push to `dev`, and deploy the website.
 Nothing is redirected; the legacy host stays canonical.
