@@ -2152,3 +2152,44 @@ Owner decision: the website moves to `anxhost.anxlabs.net`;
 - Not done: publication (on hold by the owner, 2026-11-27), production Agent
   updates, domain migration, the 216-B website items (see the readiness
   review in the session report).
+
+## Published (2026-11-27)
+
+- The owner approved with `🚀 publish`.
+  - Records were committed and `dev` pushed `5e3e2f8f..ff17686b`.
+  - `v2.0-build216` (annotated, "AnxHost Control Center v2.0-build216") was tagged on the accepted RC3 commit `1212d772`. No RC4 and no desktop rebuild beyond the tag run.
+- **Release run** 45981090809 passed all five jobs (static validation, rc-validation, Windows, Linux, publish). It published to AnxOS-Control-Center-Releases with 12 assets.
+- **Published files**, downloaded and checked:
+  - All 11 `SHA256SUMS` entries match. There is exactly one Setup asset, and the updater picks it.
+  - Setup, its embedded engine and the portable are Authenticode Valid: Anjo ROSIMO, Microsoft ID Verified CS EOC CA 03, timestamped.
+  - The engine's SHA-256 equals the value compiled into Setup.
+  - `latest.yml` and the blockmap describe Setup. `update-manifest.json` reads 2.0 Build 216 Private Alpha.
+  - The `.deb` and AppImage pass `verify-packaged-app` (0 unresolved requires, Agent copies present) and open from a clean profile in WSL.
+  - The tagged run signs again, so these files differ from RC3's (same commit), as for Builds 212-215.
+
+  | Asset | SHA-256 |
+  | --- | --- |
+  | Setup | `E68AED8EB4029391BA459E6131171ABF5FFF8702E20F9FB70B1800287CA4F8BB` |
+  | Portable | `BF71F9CA84142E7C3774D6E2512654A83A0599F8A0EC102470A69287330453C4` |
+  | Linux `.deb` | `4A6D91F23911CF88DB652969586426DE8DF2870B215C90FC31BA28C5FD3CDDF7` |
+  | AppImage | `E3C9A9E32B3A8A182AF5E0DFB453FC467CE2091F7A0C4DED18D6398670B2849C` |
+  | Agent `.deb` | `88283C0E73D689FF9BB9E43AD6F3B35CC1C4F50A9B3C0096E6132A1B387B9E85` |
+
+- **Promotion run** 45985507193 passed every step:
+  - Website metadata commit `f70f3dcd` on `dev`.
+  - The release promoted to stable Latest, and the source-repository pointer updated.
+  - The Releases README managed section updated.
+  - Guarded Pages deploy 45985544100 succeeded, as production deployment `f198efcf`. Cloudflare skipped the bot's `dev` push, as it skipped ours.
+- **Public checks (all pass except the Releases README header):**
+  - Both repositories report Latest `v2.0-build216`.
+  - The updater's `latest.yml` and `update-manifest.json` at `releases/latest` are Build 216.
+  - `config.js` on both hosts is Build 216, with `siteUrl` still legacy.
+  - Home, Download and Release notes name Build 216 in their static HTML on both hosts.
+  - The release notes page lists 56 releases, back to 1.6 Build 138.
+  - All four download API platforms answer 302 to the Build 216 files, and the files answer 206.
+  - `website-launch-check --stage=deployed` passes 15 of 15: 64 of 64 download requests redirect, and the new host is noindex.
+  - `npm run qa:website` passes 18 of 18 on `f70f3dcd`.
+- **Not done (owner decisions):**
+  - The Releases repository README header, above the managed markers, still reads "AnxOS Control Center — Releases" with the old logo. Promotion only rewrites the managed section; the renamed header in `docs/releases-repository/README.md` has never been copied over.
+  - Phase 3 (canonical switch and redirects).
+  - Build 217 (sign-in on the new host, in-app wording).
