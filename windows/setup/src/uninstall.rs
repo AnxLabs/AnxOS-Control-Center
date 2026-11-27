@@ -59,8 +59,7 @@ pub fn run(installed: &Installed, on: &mut dyn FnMut(f64, String)) -> Result<i32
   let mut args = uninstaller_args(installed);
   args.push(format!("_?={}", location.display()));
   on(0.0, format!("uninstaller {}", args.join(" ")));
-  let mut child = Command::new(&uninstaller)
-    .args(&args)
+  let mut child = crate::engine::nsis_command(&uninstaller, &args)
     .creation_flags(CREATE_NO_WINDOW)
     .spawn()
     .map_err(|e| format!("Windows did not start the uninstaller ({e})."))?;

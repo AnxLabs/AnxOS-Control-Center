@@ -1400,38 +1400,32 @@ Use this section to accumulate verified project knowledge over time. Add entries
 
 ### 2026-11-26 — Build 216 RC1: Setup's progress bar never measured anything
 
-- **Problem:** In a clean Sandbox, a real install sat on "Preparing" with a
-  moving bar for its whole 47 s and jumped to Done. The measured copy step
-  never appeared, although `cargo test` drove a stand-in engine through it.
-  On a fresh install the list also said "Stopped the Helper" when there was
-  none.
-- **Cause:** electron-builder runs `customInit` before its own
-  `InitPluginsDir`. On a fresh install no plugin has run yet, so the
-  `plugins $PLUGINSDIR` status line was empty and Setup never learned which
-  folder to measure. The stand-in engine wrote a real folder, so the test
-  could not see it.
-- **Resolution:** `customInit` calls `InitPluginsDir` first
-  (`anxhost-setup-contract-smoke` S3 fails without it). The Helper step says
-  "Checked for a running Helper" when none was set up, and the bar publishes
+- **Problem:** In a clean Sandbox, real installs sat on "Preparing" or
+  "Closing the app…" with a moving bar for their whole run and jumped to
+  Done. No status line from the engine ever reached Setup, although
+  `cargo test` drove a stand-in engine through every step. On a fresh install
+  the list also said "Stopped the Helper" when there was none.
+- **Cause:** Setup started NSIS with Rust's `Command::args`, which quotes any
+  argument containing a space. The install folder (`…\AnxOS Control Center`)
+  always has spaces, so the engine got `"/D=…"`. NSIS only honours an
+  unquoted `/D=` and splits options on " /", so it ignored the folder (hidden
+  because it equals the default) and could not read `/ANXSTATUS=`. The
+  uninstaller's `_?=` had the same defect. The stand-in test called the
+  progress loop directly, bypassing the code that builds the command line.
+  A first fix (`InitPluginsDir` in `customInit`) was a wrong guess; a
+  Sandbox run of the engine on its own then showed it writing every line, and
+  Setup's log showed the quoted command line.
+- **Resolution:** `nsis_command` passes NSIS arguments raw for the engine,
+  the silent path, the WebView2 fallback and the uninstaller.
+  `nsis_args_reach_the_program_unquoted` (fails with `Command::args`) and
+  `anxhost-setup-contract-smoke` S11. The Helper step says "Checked for a
+  running Helper" when none was set up, and the bar publishes
   `aria-valuenow`.
-- **Lesson:** A stand-in must reproduce the real producer's state at the
-  moment it reports, not the state the consumer hopes for. Check progress
-  reporting against the real installer on a clean machine, and look at what
-  the screen showed over time, not only that it finished.
-
-## Future Improvements
-
-Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
-
-- [ ] Record proposed improvement, motivation, and affected area.
-- [ ] Assess value, risk, compatibility, security, and effort.
-- [ ] Define acceptance criteria.
-- [ ] Obtain explicit user approval before implementation.
-- [ ] Move approved work into a separately scoped task.
-
-## Workflow Changelog
-
-Record protocol changes here without removing prior entries. Add new versions above older versions.
+- **Lesson:** When a program parses its own command line (NSIS, msiexec,
+  cmd), test the exact command line it receives, with spaces in every path.
+  Test the code path that launches the real program, not only the loop after
+  it. When a fix is a guess, prove the cause with the real component before
+  committing, as the engine-only Sandbox run did here.
 
 ### Version 1.0
 

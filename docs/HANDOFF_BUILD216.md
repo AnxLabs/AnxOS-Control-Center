@@ -1928,8 +1928,11 @@ the gate** (ports helper). `qa:website` 12/12. Tree clean afterwards.
 - Run 45908457730 (`a7740179`): Setup has no VC runtime import and every
   artifact check passed. A Sandbox dry run (this Setup program with the signed
   engine of run 45903642755) installed in 50 s with the Helper running and
-  build 216 installed, but the bar never measured the copy (AGENTS.md
-  lesson). Fixed in the next commit and rebuilt.
+  build 216 installed, but the bar never measured the copy. Run 45911527509
+  (`ce4d7313`, an `InitPluginsDir` guess) passed the RC1 upgrade in the Sandbox
+  (Smart App Control on, 625 files signed, data, Helper and Agent identity
+  kept) but still reported no engine status: Setup quoted `/D=` and
+  `/ANXSTATUS=` (AGENTS.md lesson). Fixed in the next commit and rebuilt.
 
 ### 216-G remaining risks
 

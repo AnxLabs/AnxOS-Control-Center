@@ -97,7 +97,7 @@ fn fallback(kind: Kind, options: &Options) -> i32 {
       if options.no_helper {
         args.push("/NOHELPER".to_string());
       }
-      std::process::Command::new(&prepared.exe).args(&args).status().map(|s| s.code().unwrap_or(1)).unwrap_or(1)
+      engine::nsis_command(&prepared.exe, &args).status().map(|s| s.code().unwrap_or(1)).unwrap_or(1)
     }
     Err(reason) => {
       shell::message("AnxHost Control Center Setup", &reason, false);

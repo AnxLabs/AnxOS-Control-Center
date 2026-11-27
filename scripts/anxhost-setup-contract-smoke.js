@@ -71,9 +71,8 @@ check("S3 status lines written and parsed", () => {
   for (const word of written) assert(new RegExp(`"${word}"(\\s+if [^=]*)?\\s*=>`).test(engineRs), `engine.rs parses "${word}"`);
   assert(/customFiles_x64[\s\S]{0,80}anxStatus "extracted"/.test(nsh), "extracted is reported after the files are in place");
   assert(/\$\{GetOptions\} \$R0 "\/ANXSTATUS=" \$R1/.test(nsh), "the status file comes from /ANXSTATUS=");
-  // electron-builder calls customInit before InitPluginsDir: without its own
-  // InitPluginsDir the "plugins" line is empty on a fresh install and the
-  // copy is never measured (RC1 Sandbox).
+  // electron-builder calls customInit before InitPluginsDir: the "plugins"
+  // line must not depend on an earlier plugin call having created it.
   const init = /!macro customInit([\s\S]*?)!macroend/.exec(nsh)?.[1] || "";
   assert(/InitPluginsDir[\s\S]*anxStatus "plugins \$PLUGINSDIR"/.test(init), "customInit initialises $PLUGINSDIR before reporting it");
   assert(/"plugins" if !rest\.is_empty\(\)/.test(engineRs), "an empty plugins line is not taken as a folder");
@@ -207,6 +206,17 @@ check("S10 Setup starts on a clean Windows (no Visual C++ runtime needed)", () =
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+check("S11 the engine and the uninstaller get NSIS's raw command line", () => {
+  // RC1 Sandbox: Command::args quoted "/D=...\AnxOS Control Center", so NSIS
+  // ignored the folder and never read /ANXSTATUS= (no progress was reported).
+  const engineSrc = read("windows", "setup", "src", "engine.rs");
+  assert(/pub fn nsis_command[\s\S]{0,200}command\.raw_arg\(arg\)/.test(engineSrc), "nsis_command passes each argument raw");
+  for (const [file, src] of [["engine.rs", engineSrc], ["uninstall.rs", read("windows", "setup", "src", "uninstall.rs")], ["ui.rs", read("windows", "setup", "src", "ui.rs")]]) {
+    assert(!/Command::new\((engine|&prepared\.exe|&uninstaller)\)/.test(src), `${file} starts NSIS through nsis_command`);
+  }
+  assert(/fn nsis_args_reach_the_program_unquoted/.test(engineSrc), "cargo test covers a path with spaces");
 });
 
 for (const line of results) console.log(line);

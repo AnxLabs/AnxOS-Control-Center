@@ -194,6 +194,19 @@ impl Options {
   }
 }
 
+/// Starts an NSIS program (the engine or the uninstaller). NSIS reads its own
+/// command line: `/D=` and `_?=` must be unquoted and last, and options are
+/// split on " /", which no Windows path contains. `Command::args` quotes any
+/// argument with a space ("/D=C:\...\AnxOS Control Center"), so NSIS ignored
+/// the folder and could not read /ANXSTATUS= (RC1 Sandbox): pass them raw.
+pub fn nsis_command(exe: &Path, args: &[String]) -> Command {
+  let mut command = Command::new(exe);
+  for arg in args {
+    command.raw_arg(arg);
+  }
+  command
+}
+
 /// The engine, written out, verified and held open until it has run.
 pub struct Prepared {
   pub dir: PathBuf,
@@ -350,8 +363,7 @@ pub fn run(engine: &Path, options: &Options, install_dir: &Path, status: &Path, 
   let _ = std::fs::remove_file(status);
   let args = options.engine_args(Some(status));
   on(Event::Log(format!("engine {}", args.join(" "))));
-  let child = Command::new(engine)
-    .args(&args)
+  let child = nsis_command(engine, &args)
     .creation_flags(CREATE_NO_WINDOW)
     .spawn()
     .map_err(|e| format!("Windows did not start the installer ({e})."))?;
@@ -427,8 +439,7 @@ pub fn silent(options: &Options) -> i32 {
   let mut log = |_: String| {};
   match prepare(&mut log) {
     Ok(prepared) => {
-      let code = Command::new(&prepared.exe)
-        .args(options.engine_args(None))
+      let code = nsis_command(&prepared.exe, &options.engine_args(None))
         .creation_flags(CREATE_NO_WINDOW)
         .status()
         .map(|s| s.code().unwrap_or(1))
@@ -544,6 +555,38 @@ mod tests {
 
   /// A stand-in engine (PowerShell) writes phases and files; drive() reports
   /// them in order and returns its exit code.
+  /// Helper for nsis_args_reach_the_program_unquoted: when started by that
+  /// test, records the arguments it received; otherwise does nothing.
+  #[test]
+  fn record_arguments_helper() {
+    if let Some(out) = std::env::var_os("ANXHOST_RECORD_ARGS") {
+      let args: Vec<String> = std::env::args().skip(1).collect();
+      std::fs::write(out, args.join("\n")).unwrap();
+    }
+  }
+
+  #[test]
+  fn nsis_args_reach_the_program_unquoted() {
+    // RC1 Sandbox: Command::args quoted "/D=...\AnxOS Control Center", so NSIS
+    // ignored the folder and /ANXSTATUS=. Raw, a path with spaces reaches the
+    // program split at its spaces, exactly as NSIS expects to read it.
+    let dir = std::env::temp_dir().join(format!("anxhost-args-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = dir.join("args.txt");
+    let options = Options { dir: Some(PathBuf::from(r"C:\Users\Some One\AppData\Local\Programs\AnxOS Control Center")), ..Default::default() };
+    let mut args = vec!["engine::tests::record_arguments_helper".to_string(), "--exact".to_string()];
+    args.extend(options.engine_args(Some(Path::new(r"C:\Users\Some One\AppData\Local\Temp\AnxHostSetup-1\status.txt"))));
+    let status = nsis_command(&std::env::current_exe().unwrap(), &args).env("ANXHOST_RECORD_ARGS", &out).status().unwrap();
+    assert!(status.success());
+    let seen = std::fs::read_to_string(&out).unwrap();
+    let seen: Vec<&str> = seen.lines().collect();
+    assert!(seen.contains(&r"/ANXSTATUS=C:\Users\Some"), "{seen:?}");
+    assert!(seen.contains(&r"/D=C:\Users\Some"), "{seen:?}");
+    assert_eq!(seen.last(), Some(&"Center"), "/D= is last and unquoted: {seen:?}");
+    assert!(!seen.iter().any(|a| a.contains("AnxOS Control Center")), "no argument was quoted: {seen:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
   #[test]
   fn drives_a_stand_in_engine() {
     let dir = std::env::temp_dir().join(format!("anxhost-setup-test-{}", std::process::id()));
