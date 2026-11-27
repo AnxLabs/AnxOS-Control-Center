@@ -48949,6 +48949,14 @@ async function downloadUpdate() {
   }
 }
 
+// Every editor that keeps unsaved text or settings in the window.
+function hasUnsavedEditsBeforeClosing() {
+  const checks = [hasDirtyFileEditor, hasDirtyInstanceFile, hasUnsavedInstanceSettings, isGameConfigDirty];
+  return checks.some((check) => {
+    try { return Boolean(check()); } catch { return false; }
+  });
+}
+
 async function installUpdate() {
   const desktopApiState = getDesktopApiState();
   if (!desktopApiState.hasUpdates) return;
@@ -48956,8 +48964,28 @@ async function installUpdate() {
     showToast("Owner access is required to install application updates.");
     return;
   }
+  // 217-E: installing closes AnxHost, so unsaved edits would be lost.
+  if (hasUnsavedEditsBeforeClosing()) {
+    const discard = await createSecurityConfirmation({
+      title: "Install the update and lose unsaved changes?",
+      message: "AnxHost closes to install the update. Unsaved edits to a file or to server settings will be lost. Save them first, or install anyway.",
+      confirmLabel: "Install anyway",
+    });
+    if (!discard) return;
+  }
   try {
     const result = await (desktopApiState.api.updates.install ? desktopApiState.api.updates.install() : desktopApiState.api.updates.openDownloaded());
+    if (result?.closing) {
+      showToast("Closing AnxHost to install the update. Servers on this PC stop and are saved first.");
+      return;
+    }
+    // Work on this PC must finish first: a notice, not an installer error.
+    if (result?.code === "UPDATE_BUSY") {
+      // The toast would sit behind the update dialog's backdrop.
+      if (updateModal && !updateModal.hidden) setUpdateModalVisible(false);
+      showToast(result.error || "Wait for the work in progress to finish, then install the update.", "warning");
+      return;
+    }
     // install() reports a refusal (checksum mismatch, Phase 9 signature
     // check, missing file) as { installed: false, error } rather than
     // throwing, so it has to be shown here.

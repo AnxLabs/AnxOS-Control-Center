@@ -363,6 +363,7 @@
     "icons:linux": "node scripts/generate-linux-icons.js",
     "marketplace:smoke": "node scripts/marketplace-smoke.js",
     "marketplace-search:smoke": "node scripts/marketplace-search-smoke.js",
+    "update-handoff:smoke": "node scripts/update-handoff-smoke.js",
     "marketplace:readiness:smoke": "node scripts/marketplace-readiness-smoke.js",
     "marketplace:file-write-retry:smoke": "node scripts/marketplace-file-write-retry-smoke.js",
     "marketplace:certification:smoke": "node scripts/marketplace-template-certification-smoke.js",

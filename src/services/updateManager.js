@@ -490,6 +490,22 @@ class UpdateManager extends EventEmitter {
     this.storeError = null;
     this.activeDownload = null;
     this.activeRequests = new Set();
+    this.installHandoff = null;
+    this.pendingInstallerPath = null;
+    this.closingForInstall = false;
+  }
+
+  // 217-E: main.js supplies how to find work that must finish first and how
+  // to close the app. With a handoff configured, Install closes the app
+  // through its normal shutdown and the installer is opened last
+  // (completeInstallHandoff), instead of the installer forcing the app shut.
+  configureInstallHandoff(handoff = {}) {
+    if (typeof handoff.requestQuit !== "function") throw new Error("configureInstallHandoff needs requestQuit.");
+    this.installHandoff = {
+      findBlockingWork: typeof handoff.findBlockingWork === "function" ? handoff.findBlockingWork : async () => [],
+      describeBlockingWork: typeof handoff.describeBlockingWork === "function" ? handoff.describeBlockingWork : () => "Work is still running on this PC.",
+      requestQuit: handoff.requestQuit,
+    };
   }
 
   initialize() {
@@ -632,7 +648,9 @@ class UpdateManager extends EventEmitter {
     if (reachedTarget && this.pendingInstall.status !== "launch-confirmed") {
       this.pendingInstall = { ...this.pendingInstall, status: "launch-confirmed", confirmedAt: new Date().toISOString(), guidance: null };
       this.saveStore();
-    } else if (!reachedTarget && this.pendingInstall.status === "handed-off") {
+    } else if (!reachedTarget && ["handed-off", "handoff-pending"].includes(this.pendingInstall.status)) {
+      // 217-E: "handoff-pending" means the app was closing for the update and
+      // stopped before the installer opened (a crash or a forced end).
       this.pendingInstall = {
         ...this.pendingInstall,
         status: "handoff-unconfirmed",
@@ -1044,12 +1062,24 @@ class UpdateManager extends EventEmitter {
     // by Windows or closed while this session keeps running, so Install opens
     // the verified installer again instead of silently doing nothing; the
     // installer itself allows only one running copy.
-    if (this.installInFlight) {
+    if (this.installInFlight || this.closingForInstall) {
       return { installed: false, alreadyRequested: true, pendingInstall: this.pendingInstall, state: this.getState() };
     }
     this.installInFlight = true;
     const reopening = this.pendingInstall?.status === "handed-off";
     try {
+      if (this.installHandoff) {
+        const blocking = await this.installHandoff.findBlockingWork();
+        if (blocking.length) {
+          this.log("Install postponed until work on this PC finishes.", { blocking: blocking.map((entry) => entry.kind || entry.source) }, "warn");
+          return {
+            installed: false,
+            code: "UPDATE_BUSY",
+            error: this.installHandoff.describeBlockingWork(blocking),
+            busy: blocking.map(({ label, kind, source }) => ({ label, kind, source })),
+          };
+        }
+      }
       await verifyUpdateArtifact(this.state.downloadedPath, this.state.latest?.asset);
       // Phase 9: a Windows installer must also carry a valid Authenticode
       // signature from the AnxOS Control Center publisher. The checksum above
@@ -1071,6 +1101,13 @@ class UpdateManager extends EventEmitter {
       });
       this.saveStore();
       this.log(reopening ? "Install requested again after an earlier handoff." : "Install requested.", { path: this.state.downloadedPath });
+      if (this.installHandoff) {
+        this.pendingInstallerPath = this.state.downloadedPath;
+        this.closingForInstall = true;
+        this.log("Closing the app before the installer starts.", { path: this.state.downloadedPath });
+        this.installHandoff.requestQuit();
+        return { installed: true, closing: true };
+      }
       const launchError = await shell.openPath(this.state.downloadedPath);
       if (launchError) throw Object.assign(new Error(`The update installer could not be opened: ${launchError}`), { code: "UPDATE_INSTALLER_OPEN_FAILED" });
       this.pendingInstall = { ...this.pendingInstall, status: "handed-off", handedOffAt: new Date().toISOString() };
@@ -1092,6 +1129,27 @@ class UpdateManager extends EventEmitter {
       return { installed: false, code: error?.code || "UPDATE_INSTALL_FAILED", error: this.state.error, state: this.getState() };
     } finally {
       this.installInFlight = false;
+    }
+  }
+
+  // Called by main.js at the end of its shutdown, once servers are stopped and
+  // pending writes are saved. Opens the verified installer prepared by install().
+  async completeInstallHandoff() {
+    const installerPath = this.pendingInstallerPath;
+    if (!installerPath) return { opened: false };
+    this.pendingInstallerPath = null;
+    try {
+      const launchError = await shell.openPath(installerPath);
+      if (launchError) throw Object.assign(new Error(`The update installer could not be opened: ${launchError}`), { code: "UPDATE_INSTALLER_OPEN_FAILED" });
+      this.pendingInstall = { ...this.pendingInstall, status: "handed-off", handedOffAt: new Date().toISOString() };
+      this.saveStore();
+      this.log("Install handoff completed after shutdown.", { path: installerPath });
+      return { opened: true };
+    } catch (error) {
+      this.pendingInstall = { ...this.pendingInstall, status: "handoff-failed", failedAt: new Date().toISOString(), errorCode: error?.code || "UPDATE_INSTALL_FAILED" };
+      try { this.saveStore(); } catch {}
+      this.log("Install handoff failed after shutdown.", { code: error?.code || "UPDATE_INSTALL_FAILED", message: error?.message || String(error) }, "error");
+      return { opened: false, code: error?.code || "UPDATE_INSTALL_FAILED" };
     }
   }
 

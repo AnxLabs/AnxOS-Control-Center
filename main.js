@@ -39,6 +39,7 @@ const { registerWorkloadIpc } = require("./src/ipc/workloadIpc");
 const { registerDeveloperUpdatesIpc, registerUpdatesIpc } = require("./src/ipc/updatesIpc");
 const { logStartupStatus: logCurseForgeStartupStatus } = require("./src/services/providers/curseforgeProvider");
 const { UpdateManager } = require("./src/services/updateManager");
+const updateHandoff = require("./src/services/updateHandoffService");
 const { configureElectronPaths } = require("./src/services/electronPaths");
 const { createAlertStateCollector } = require("./src/services/alertStateCollector");
 const { DeveloperGitUpdater } = require("./src/services/developerGitUpdater");
@@ -101,7 +102,20 @@ configureElectronPaths(app, qaMode ? {
   localAppDataPath: app.getPath("userData"),
   tempPath: path.join(app.getPath("userData"), "tmp"),
 } : {});
+// 217-E: move aside temp files left by a save that was cut off (only this
+// installation's desktop, holding the single-instance lock, does this).
+let orphanTempRecovery = null;
+if (gotSingleInstanceLock && !agentMode) {
+  try {
+    orphanTempRecovery = require("./src/shared/orphanTempRecovery").recoverOrphanTempFiles(require("./src/services/secureSessionStore").getDefaultConfigDirectory());
+  } catch (error) {
+    orphanTempRecovery = { error: error?.code || error?.message || "ORPHAN_TEMP_RECOVERY_FAILED" };
+  }
+}
 const diagnostics = require("./src/services/diagnosticsService");
+if (orphanTempRecovery && (orphanTempRecovery.quarantined?.length || orphanTempRecovery.failed || orphanTempRecovery.error)) {
+  diagnostics.log(orphanTempRecovery.orphanedStore?.length || orphanTempRecovery.error ? "warn" : "info", "storage", "orphan-temp-files", "Moved aside temp files left by an interrupted save.", orphanTempRecovery, { file: "desktop" });
+}
 const { registerDiagnosticsIpc } = require("./src/ipc/diagnosticsIpc");
 const { registerAgentControlIpc } = require("./src/ipc/agentControlIpc");
 const { registerAlertsIpc } = require("./src/ipc/alertsIpc");
@@ -862,6 +876,16 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("app:getRuntimeInfo", () => getRuntimeInfo());
   registerWindowIpc();
+  // 217-E: Install closes the app through its normal shutdown, then opens the
+  // installer (see before-quit), and waits for sensitive work on this PC.
+  updateManager.configureInstallHandoff({
+    findBlockingWork: () => updateHandoff.findBlockingWork({
+      listOperations: () => require("./src/shared/longOperationService").listOperations(),
+      listInstanceJobs: (options) => localInstanceService.listInstanceJobs(options),
+    }),
+    describeBlockingWork: updateHandoff.describeBlockingWork,
+    requestQuit: () => app.quit(),
+  });
   registerUpdatesIpc(updateManager);
   registerDeveloperUpdatesIpc(developerGitUpdater);
   registerActionIpc();
@@ -1049,6 +1073,12 @@ app.on("before-quit", (event) => {
   disposeSshIpc();
   Promise.all([anxnetService.shutdown().catch(() => {}), mobileGatewayService.shutdown().catch(() => {}), localInstanceService.shutdownInstanceService()])
     .catch((error) => diagnostics.logError("shutdown", "instances", error, {}, { file: "desktop" }))
+    .then(() => {
+      try { require("./src/shared/longOperationService").flushPendingWrites(); } catch (error) { diagnostics.logError("shutdown", "long-operations", error, {}, { file: "desktop" }); }
+      // 217-E: an update's installer opens only now, after servers stopped and
+      // pending writes were saved, so it never has to force the app closed.
+      return updateManager.completeInstallHandoff().catch((error) => diagnostics.logError("shutdown", "update-handoff", error, {}, { file: "desktop" }));
+    })
     .finally(() => {
       appShutdownComplete = true;
       app.quit();

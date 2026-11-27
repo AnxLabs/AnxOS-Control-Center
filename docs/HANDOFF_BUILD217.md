@@ -10,7 +10,7 @@ Plan: `PLANS.md` (Build 217 section). Protocol: `AGENTS.md` (ADP).
 | 217-A Performance | **Complete; local checkpoint commit** (not pushed). The time until the shell appears is down 65% (8.7 s to 3.1 s), Home's idle Agent requests are down 26%, and My Servers no longer rebuilds rows on each poll. Memory is down 1-3%; the target needs the owner's startup-sound decision. |
 | 217-B UI polish | **Complete; local checkpoint commit** (not pushed). The last on-screen "AnxOS" wording now says AnxHost (frozen identifiers kept). Add Server search matches every word. The light theme's Computer details chips now pass contrast. 1,573 capabilities kept. |
 | 217-C Domain and account | **App side complete; local checkpoint commit** (not pushed). The app trusts both hosts, opens account pages on `anxhost.anxlabs.net`, and reads update metadata there first. **Production steps prepared, not applied** (Supabase origins, the Auth redirect list, removing the website's sign-in 302); each needs the owner's approval. |
-| 217-E Installer and update reliability | Not started |
+| 217-E Installer and update reliability | **Complete; local checkpoint commit** (not pushed). Install now closes the app through its normal shutdown (servers stopped with their own stop command, pending writes saved) before the installer opens, and waits while sensitive work runs. Orphan temp files from cut-off saves are moved aside at startup. Installer UI, signing and identifiers unchanged. |
 | 217-F Mobile | Not started |
 | 217-D AnxNet infrastructure | **Investigation complete** (`docs/anxhost/ANXNET_INFRASTRUCTURE.md`). No code, DNS, port or service change. Recommends a configurable suffix in a later build and an AnxLabs relay only as a separately approved project. |
 | 217-G Stabilization and RC preparation | Not started |
@@ -28,6 +28,7 @@ Plan: `PLANS.md` (Build 217 section). Protocol: `AGENTS.md` (ADP).
 | Plan and 217-A | 2026-11-27T10:28:59-07:00 | 2026-11-27T11:25:44-07:00 | 0 h 57 min |
 | 217-B | 2026-11-27T11:25:44-07:00 | 2026-11-27T12:28:42-07:00 | 1 h 03 min |
 | 217-C and 217-D (worked on while the 217-B real-app suites ran, so the times overlap) | 2026-11-27T12:02:29-07:00 | 2026-11-27T12:30:23-07:00 | about 0 h 28 min |
+| 217-E | 2026-11-27T12:31:12-07:00 | 2026-11-27T12:40:41-07:00 | 0 h 10 min (investigation done earlier, while suites ran) |
 
 ## 217-A Performance
 
@@ -156,3 +157,31 @@ Validation: `account-primary-domain-smoke` D1–D6 (all six fail on the 217-B tr
 - An AnxLabs-run relay or gateway needs dynamic enrollment, quotas, an abuse policy and a DDoS posture.
 
 Nothing was built, deployed or configured.
+
+## 217-E Installer and update reliability
+
+### Findings (evidence)
+
+| Finding | Evidence | Action |
+| --- | --- | --- |
+| The installer closes a running app by ending its processes, and a normal close only hides the main window to the tray. So every in-app update ended with a forced kill: no shutdown, servers on This PC not stopped through their stop command, debounced writes lost. | `updateManager.install()` opened the installer while the app kept running. electron-builder's NSIS app check ends the process. The main window's `close` handler hides it to the tray (`main.js`). | Install closes the app itself. `main.js` runs its normal `before-quit` shutdown (AnxNet, Phone Access, servers this app runs), saves pending long-operation writes (`flushPendingWrites`), and only then opens the verified installer (`completeInstallHandoff`). |
+| Nothing stopped an update while sensitive work ran. | No check existed. | Install refuses with `UPDATE_BUSY` and a plain message while a long operation (file transfer, server or modpack install, Docker image download) or a job of a server this app runs (install, settings change, start, stop, restart) is active. Backups and restores run in an Agent, which already finishes a running restore before it stops. |
+| Unsaved edits were lost silently. | Install did not check the editors. | The renderer asks first when the file editor, a server file, server settings or game settings have unsaved changes. |
+| Temp files from cut-off saves stay forever. | The development PC's real config folder held `alerts.json.<pid>.<time>.tmp`. About 40 stores write `<file>.<pid>.….tmp` and then rename it. | At startup, the desktop moves such files aside into `.recovered-tmp/` (newest 20 kept) when they are at least 10 minutes old and their writer is not running. It never restores them automatically, because some stores delete their file on purpose: a sign-out removes the saved session, and restoring an old copy would undo it. A missing store is logged so support can recover it by hand. |
+| An update cut off before its installer opened stayed "handoff-pending". | `reconcilePendingInstall` only looked at "handed-off". | "handoff-pending" is now reported the same way as an unconfirmed handoff, with the existing guidance. |
+
+Not changed:
+- Installer progress and layout: no defect found; AnxHost Setup's progress was fixed and Sandbox-tested in Build 216.
+- Signing, frozen identifiers, Helper and Agent compatibility.
+- The Agent's own config folder: the Local Agent shares the desktop's folder but is not swept by itself, so only the desktop, holding the single-instance lock, sweeps it.
+
+### Validation performed
+
+| Check | Result |
+| --- | --- |
+| `update-handoff-smoke` U1–U8 and U5b (new) | PASS 9/9. U3 to U6 fail on the 217-D commit, which has neither `configureInstallHandoff` nor `completeInstallHandoff`. |
+| 98 update, installer, upgrade, main-process, operation, observability, window, IPC, startup, settings and security smokes | PASS |
+| Real app: `window-close-ui-qa` (W1, W2) and `servers-list-polling-ui-qa` | PASS |
+| `node --check` on every changed file; `git diff --check` | PASS; clean |
+
+Not tested here: the end-to-end in-app update with a real signed installer. It needs a signed release candidate, and it is the RC acceptance's in-place upgrade step (Phase 5), which uses this exact path.

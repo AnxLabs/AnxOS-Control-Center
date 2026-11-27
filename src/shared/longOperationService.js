@@ -544,6 +544,8 @@ module.exports = {
   retryOperation,
   updateOperation,
   upsertOperation,
+  // 217-E: writes are debounced, so shutdown saves the latest state first.
+  flushPendingWrites: () => { if (pendingPersist) flushPersist(); },
   _test: {
     flushPersist,
     sanitizeForPersistence,
