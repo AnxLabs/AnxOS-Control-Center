@@ -5,16 +5,16 @@ const path = require("path");
 const { app } = require("electron");
 const { SecureSessionStore, getDefaultConfigDirectory } = require("./secureSessionStore");
 const { openExternalUrl } = require("./externalUrlService");
-const { OFFICIAL_SITE_HOSTNAME, OFFICIAL_SITE_ORIGIN } = require("../shared/officialSite");
+const { OFFICIAL_SITE_HOSTNAMES, OFFICIAL_SITE_ORIGIN, PRIMARY_SITE_ORIGIN } = require("../shared/officialSite");
 const authRecovery = require("./authRecoveryState");
 
-const WEBSITE_BASE_URL = OFFICIAL_SITE_ORIGIN;
+// 217-C: account pages open on the primary website. The legacy host stays
+// approved, because installed builds and the account service still use it.
+const WEBSITE_BASE_URL = PRIMARY_SITE_ORIGIN;
 const DEFAULT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_DEVICE_LOGIN_TTL_MS = 10 * 60 * 1000;
 const MAX_POLL_MS = 10 * 60 * 1000;
-const APPROVED_AUTH_HOSTS = new Set([
-  OFFICIAL_SITE_HOSTNAME,
-]);
+const APPROVED_AUTH_HOSTS = new Set(OFFICIAL_SITE_HOSTNAMES);
 const LOCAL_ACCOUNT_HOSTS = new Set(["localhost", "127.0.0.1"]);
 const LEGACY_ACCOUNT_HOSTS = new Set([
   "anxos-control-center.pages.dev",
@@ -198,8 +198,15 @@ function getAccountConfig(options = {}) {
   };
 }
 
+// The bundled website config (website/account-config.js) names the legacy
+// origin, because the website's own sign-in pages and Supabase emails still
+// use it. For the app that value is the old default, so the primary website
+// is used instead. A site URL set through the environment is used as given.
 function getWebsiteBaseUrl() {
-  return normalizeBaseUrl(getAccountConfig().siteUrl, WEBSITE_BASE_URL);
+  const configured = normalizeBaseUrl(getAccountConfig().siteUrl, "");
+  const fromEnvironment = Boolean(process.env.ANXOS_WEBSITE_BASE_URL || process.env.WEBSITE_BASE_URL || process.env.ANXOS_ACCOUNT_SITE_URL);
+  if (!configured || (!fromEnvironment && configured === OFFICIAL_SITE_ORIGIN)) return WEBSITE_BASE_URL;
+  return configured;
 }
 
 function buildWebsiteUrl(route = "account", params = {}) {

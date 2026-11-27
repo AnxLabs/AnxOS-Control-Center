@@ -2,8 +2,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+// 217-C (prepared, not deployed): the primary website is added beside the
+// legacy origin, never instead of it.
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://anxoscontrolcenter.org",
+  "https://anxhost.anxlabs.net",
   "http://localhost:4173",
   "http://127.0.0.1:4173",
 ];

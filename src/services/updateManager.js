@@ -7,7 +7,7 @@ const https = require("https");
 const os = require("os");
 const path = require("path");
 const { openExternalUrl } = require("./externalUrlService");
-const { OFFICIAL_SITE_ORIGIN } = require("../shared/officialSite");
+const { OFFICIAL_SITE_ORIGIN, PRIMARY_SITE_ORIGIN } = require("../shared/officialSite");
 const { sanitize, sanitizeForDiagnostics } = require("../shared/redaction");
 const { getReleaseInfo } = require("../shared/releaseConfig");
 const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
@@ -17,8 +17,11 @@ const DEFAULT_UPDATE_REPOSITORY = "AnxLabs/AnxOS-Control-Center-Releases";
 const UPDATE_REPOSITORY = normalizeUpdateRepository(process.env.ANXOS_UPDATE_REPOSITORY) || DEFAULT_UPDATE_REPOSITORY;
 const UPDATE_RELEASES_URL = `https://api.github.com/repos/${UPDATE_REPOSITORY}/releases?per_page=20`;
 const UPDATE_LATEST_RELEASE_URL = `https://api.github.com/repos/${UPDATE_REPOSITORY}/releases/latest`;
+// 217-C: the primary website first, then the legacy one (which keeps serving
+// config.js for every installed build).
 const WEBSITE_CONFIG_URLS = [
   process.env.ANXOS_WEBSITE_CONFIG_URL,
+  `${PRIMARY_SITE_ORIGIN}/config.js`,
   `${OFFICIAL_SITE_ORIGIN}/config.js`,
 ].filter(isProductionSafeMetadataUrl);
 const UPDATE_MANIFEST_URLS = [

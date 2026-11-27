@@ -139,6 +139,7 @@
     "account:ipc-error-contract:smoke": "node scripts/account-ipc-error-contract-smoke.js",
     "account:browser-auth:smoke": "node scripts/account-browser-auth-smoke.js",
     "account:session-restore:smoke": "node scripts/account-session-restore-smoke.js",
+    "account-primary-domain:smoke": "node scripts/account-primary-domain-smoke.js",
     "auth:ipc-startup:smoke": "node scripts/auth-ipc-startup-smoke.js",
     "auth:recovery:smoke": "node scripts/auth-recovery-smoke.js",
     "bootstrap:auth-order:smoke": "node scripts/bootstrap-auth-order-smoke.js",

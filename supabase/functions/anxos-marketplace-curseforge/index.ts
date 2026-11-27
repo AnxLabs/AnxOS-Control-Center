@@ -11,8 +11,11 @@ const USER_AGENT = "AnxOS-Marketplace-Proxy/1.0 (+https://anxoscontrolcenter.org
 const MINECRAFT_GAME_ID = 432;
 const MODPACK_CLASS_ID = 4471;
 
+// 217-C (prepared, not deployed): the primary website is added beside the
+// legacy origin, never instead of it.
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://anxoscontrolcenter.org",
+  "https://anxhost.anxlabs.net",
   "http://localhost:4173",
   "http://127.0.0.1:4173",
 ];

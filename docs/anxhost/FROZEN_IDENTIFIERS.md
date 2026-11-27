@@ -162,6 +162,7 @@ document stops listing a check ID.
 | FI-UPD-09 | Supabase CurseForge proxy function | `https://arqfbxstobusuamlizyq.functions.supabase.co/anxos-marketplace-curseforge` | `website/marketplace-config.js` |
 | FI-UPD-10 | Supabase account function source folder | `(file must exist)` | `supabase/functions/anxos-account/index.ts` |
 | FI-UPD-11 | Supabase CurseForge function source folder | `(file must exist)` | `supabase/functions/anxos-marketplace-curseforge/index.ts` |
+| FI-UPD-12 | primary website origin (Build 217; approved beside FI-UPD-01) | `const PRIMARY_SITE_ORIGIN = "https://anxhost.anxlabs.net";` | `src/shared/officialSite.js` |
 
 ## Not frozen (expected to change in Build 216)
 

@@ -9,10 +9,10 @@ Plan: `PLANS.md` (Build 217 section). Protocol: `AGENTS.md` (ADP).
 | Plan | Written 2026-11-27 (Build 217 section at the top of `PLANS.md`; the Build 216 plan is kept below it). |
 | 217-A Performance | **Complete; local checkpoint commit** (not pushed). The time until the shell appears is down 65% (8.7 s to 3.1 s), Home's idle Agent requests are down 26%, and My Servers no longer rebuilds rows on each poll. Memory is down 1-3%; the target needs the owner's startup-sound decision. |
 | 217-B UI polish | **Complete; local checkpoint commit** (not pushed). The last on-screen "AnxOS" wording now says AnxHost (frozen identifiers kept). Add Server search matches every word. The light theme's Computer details chips now pass contrast. 1,573 capabilities kept. |
-| 217-C Domain and account | Not started |
+| 217-C Domain and account | **App side complete; local checkpoint commit** (not pushed). The app trusts both hosts, opens account pages on `anxhost.anxlabs.net`, and reads update metadata there first. **Production steps prepared, not applied** (Supabase origins, the Auth redirect list, removing the website's sign-in 302); each needs the owner's approval. |
 | 217-E Installer and update reliability | Not started |
 | 217-F Mobile | Not started |
-| 217-D AnxNet infrastructure | Not started |
+| 217-D AnxNet infrastructure | **Investigation complete** (`docs/anxhost/ANXNET_INFRASTRUCTURE.md`). No code, DNS, port or service change. Recommends a configurable suffix in a later build and an AnxLabs relay only as a separately approved project. |
 | 217-G Stabilization and RC preparation | Not started |
 
 ## Repository
@@ -27,6 +27,7 @@ Plan: `PLANS.md` (Build 217 section). Protocol: `AGENTS.md` (ADP).
 | --- | --- | --- | --- |
 | Plan and 217-A | 2026-11-27T10:28:59-07:00 | 2026-11-27T11:25:44-07:00 | 0 h 57 min |
 | 217-B | 2026-11-27T11:25:44-07:00 | 2026-11-27T12:28:42-07:00 | 1 h 03 min |
+| 217-C and 217-D (worked on while the 217-B real-app suites ran, so the times overlap) | 2026-11-27T12:02:29-07:00 | 2026-11-27T12:30:23-07:00 | about 0 h 28 min |
 
 ## 217-A Performance
 
@@ -106,7 +107,7 @@ Same day (2026-11-27), same tool, 3 rounds each, medians.
 | Wording | User-visible "AnxOS" prose became "AnxHost": 193 renderer strings (`app.js`), 23 in `src/renderer/*.js` and `index.html`, 274 in `main.js`, `preload.js`, `src/services`, `src/ipc` and `src/shared`, and the phone gateway's messages, AnxNet's edge-config errors, Share health's port names, the relay provider name, the account label and the Owner Workspace notification title. | A scan of the renderer (`index.html` text and attributes, every string literal) finds 2 "AnxOS" strings, both frozen: `LEGACY_DEFAULT_APP_NAMES` and the firewall rule-name template. |
 | Kept on purpose | Paths and file names, the userData and legacy folder names, task, service and firewall names, the session provider value "AnxOS", the template author, the CA subject (phones match it byte for byte), the CSRF header, `isAnxOS` OS detection, log prefixes, "formerly AnxOS", the `AnxOS functional probe` payload, and the edge CLI's `Fingerprint (add this in AnxOS)` line, which `anxnet-edge-deploy-smoke` and `docs/ANXNET_EDGE_DEPLOYMENT.md` parse. Title Case bare names in main-process code (for example "AnxOS Agent") were kept, because main code uses them as folder, task or lookup names. | `frozen-identifiers` (76), `anxhost-brand-allowlist` |
 | Add Server search | Every word of the query must appear on the card, in any order ("paper minecraft" finds Minecraft Paper). A one-word query matches as before. | `marketplace-search-smoke` S1–S5 (S1 and S2 fail on the old whole-query substring match) |
-| Light theme | The Computer details health chips ("Checked", "Issues", "Workspace") kept the dark theme's translucent colours: 3.94:1 in the light theme. They now use the theme tokens. | `anxhost-theme-ui-qa` T2: 9 elements below AA before the fix, 0 after. |
+| Light theme | The Computer details health chips ("Checked", "Issues", "Workspace") kept the dark theme's translucent colours: 3.94:1 in the light theme. They now use the theme tokens. | `anxhost-theme-ui-qa` T2: 9 elements below AA before the fix, 0 after. Pre-existing: the chip CSS is the same in Build 216, whose T2 passed when run alone because the chips render only once the computer's health has been read. The light-theme check then found them. |
 | Capability inventory | One control's generated ID followed its renamed label (`…-install-anxos-ther` became `…-install-anxhost-th`). The inventory was regenerated deliberately and the row's verified tick carried over: 1,573 rows, 1,573 ticked, 0 unmapped. | `anxhost-capability-inventory --check` |
 
 Skipped, with reasons: Marketplace artwork (all 50 templates got original artwork in Build 216, and no defect was found); transitions and spacing (no defect found by the theme, toolbar and layout suites); duplicate controls (none found beyond those Build 216 retired).
@@ -130,3 +131,28 @@ Skipped, with reasons: Marketplace artwork (all 50 templates got original artwor
 | `acceptance-fixes-ui-qa` | A2 failed while another real-app suite ran beside it; PASS 9/9 alone |
 | `build215-ui-qa`, `build214-ui-qa` (J1, J2, P1) | **Not run to completion: Docker Desktop is not running on this PC.** Every failing check needs Docker; their other checks passed. Environmental; to be rerun at the final gate with Docker running. |
 | `git diff --check` | clean |
+
+## 217-C Domain and account (app side)
+
+Details and the prepared production steps: `docs/anxhost/DOMAIN_MIGRATION_PLAN.md` ("Build 217").
+
+- `PRIMARY_SITE_ORIGIN` (`https://anxhost.anxlabs.net`, new frozen entry FI-UPD-12) beside the unchanged `OFFICIAL_SITE_ORIGIN` (FI-UPD-01); the sign-in allowlist trusts both.
+- Account pages open on the primary host. The website answers them with a 302 to the same path and query on the legacy host, so sign-in, activation (`/activate/?code=…`) and recovery keep working; checked live, read-only.
+- Sign-out and session refresh talk only to the Supabase functions, so they don't depend on the website host. No other hard-coded legacy URL exists in the app.
+- Update fallback: primary `config.js` first, then legacy (both are served).
+- Supabase function sources list the primary origin beside the legacy one: **prepared, not deployed**.
+- Not done (needs approval): deploying the functions or changing the `ANXOS_ALLOWED_ORIGINS` secret, the Auth redirect allow list, removing the website 302, and moving `website/account-config.js` `siteUrl`.
+- Not verifiable here: a real sign-in, activation and password recovery need the owner's account, so they belong in RC acceptance.
+
+Validation: `account-primary-domain-smoke` D1–D6 (all six fail on the 217-B tree); `frozen-identifiers` (76 checks); 100 account, update, website, auth, version, release and marketplace smokes; `git diff --check` clean.
+
+## 217-D AnxNet infrastructure (investigation)
+
+`docs/anxhost/ANXNET_INFRASTRUCTURE.md`. Main findings:
+
+- Edges are trusted by pinned key fingerprints, never by DNS names. A public name under `anxoscontrolcenter.org` is only an address, and a DNS hijack could cause an outage but not an impersonation.
+- `.internal` names resolve only on members' machines, and nothing needs to be published in public DNS.
+- A configurable suffix or a user-owned domain is feasible as split-horizon: a subdomain the owner controls, validated, and optionally proved with a TXT record.
+- An AnxLabs-run relay or gateway needs dynamic enrollment, quotas, an abuse policy and a DDoS posture.
+
+Nothing was built, deployed or configured.

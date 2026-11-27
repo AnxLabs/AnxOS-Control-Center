@@ -105,6 +105,7 @@ const CHECKS = [
   { id: "FI-UPD-09", what: "Supabase CurseForge proxy function", file: "website/marketplace-config.js", contains: "https://arqfbxstobusuamlizyq.functions.supabase.co/anxos-marketplace-curseforge" },
   { id: "FI-UPD-10", what: "Supabase account function source folder", file: "supabase/functions/anxos-account/index.ts", contains: "" },
   { id: "FI-UPD-11", what: "Supabase CurseForge function source folder", file: "supabase/functions/anxos-marketplace-curseforge/index.ts", contains: "" },
+  { id: "FI-UPD-12", what: "primary website origin (Build 217; approved beside FI-UPD-01)", file: "src/shared/officialSite.js", contains: "const PRIMARY_SITE_ORIGIN = \"https://anxhost.anxlabs.net\";" },
 ];
 
 function main() {

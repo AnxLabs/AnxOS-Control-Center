@@ -20,7 +20,7 @@ each need a separate approval.
 | Download API 502s | **Fixed and live (Phase 1).** Cause: GitHub's API answered the worker's uncached, unauthenticated lookups with 403 (shared-IP rate limit). See `website/_worker.js` and `scripts/website-download-resilience-smoke.js`. |
 | Host-aware routing | **Live.** `website/_worker.js` decides by host (table below). |
 | Canonical switch and 301s | **Done (Phase 3, owner approved, 2026-11-27).** `17c2268a`, deployment `2d2a0bab`; see `WEBSITE_LAUNCH_RUNBOOK.md`. |
-| Sign-in on the new host | **Not started; needs approval** (authentication policy) and Build 217. |
+| Sign-in on the new host | **App side done in Build 217 (217-C, local, not released).** The app opens account pages on `anxhost.anxlabs.net` and trusts both hosts. The website still sends those pages to the legacy host (302) until the production steps below are approved. |
 | Search engines | **IndexNow done** (10 new-host pages accepted). **Google and Bing need the owner's accounts** (checklist below). |
 
 ## How the two hosts behave
@@ -83,6 +83,27 @@ Do these after the DNS record exists and the switch is approved and deployed.
   sign-in pages away from it.
 
 ## Build 217 (app, separate approval)
+
+### Done in the app (217-C, 2026-11-27, local and not released)
+
+- `src/shared/officialSite.js` adds `PRIMARY_SITE_ORIGIN` (`https://anxhost.anxlabs.net`, frozen as FI-UPD-12) and `OFFICIAL_SITE_HOSTNAMES` (primary and legacy). `OFFICIAL_SITE_ORIGIN` (FI-UPD-01) is unchanged.
+- The sign-in host allowlist is that list, so both hosts are trusted (additive).
+- Account pages (`/signin/`, `/activate/?code=…`, `/account/`) open on the primary host. The bundled `website/account-config.js` still names the legacy host, because the website's own pages and Supabase emails use it, so the app treats that value as the old default. A site URL set through the environment is used as given.
+- The update fallback reads `https://anxhost.anxlabs.net/config.js` first, then the legacy one.
+- Today the primary host answers those account pages with a 302 to the same path and query on the legacy host (checked live on 2026-11-27: `/activate/?code=…`, `/signin/` and `/account/` → 302 → 200), so sign-in, activation and recovery keep working through the legacy pages until the production steps are approved.
+- `supabase/functions/*/index.ts`: `https://anxhost.anxlabs.net` is added to `DEFAULT_ALLOWED_ORIGINS` beside the legacy origin. **Prepared in source, not deployed.**
+- Covered by `scripts/account-primary-domain-smoke.js` (D1–D6).
+
+### Production steps prepared, each needing the owner's approval (authentication policy)
+
+1. Deploy the two Supabase functions with the added origin, or add `https://anxhost.anxlabs.net` to the `ANXOS_ALLOWED_ORIGINS` secret. Never remove the legacy origin.
+2. Add `https://anxhost.anxlabs.net/**` to Supabase Auth's redirect URL allow list (Authentication › URL Configuration), keeping every legacy entry.
+3. Remove the 302 in `website/_worker.js` (`host === NEW_HOST && readOnly && AUTH_PAGE`) and deploy through the guarded workflow. Then the sign-in pages are served on the new host.
+4. Later, optionally: move `website/account-config.js` `siteUrl` to the new host, so activation emails link there.
+
+Rollback for each step: re-add the 302, or restore the previous secret or function. The legacy host keeps serving throughout.
+
+### Original plan
 
 - Add `anxhost.anxlabs.net` to the sign-in host list beside the legacy host
   (a new frozen entry; FI-UPD-01 stays), and let the update fallback try the
