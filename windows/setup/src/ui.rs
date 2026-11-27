@@ -93,7 +93,8 @@ fn fallback(kind: Kind, options: &Options) -> i32 {
   let mut log = |_: String| {};
   match engine::prepare(&mut log) {
     Ok(prepared) => {
-      let mut args = vec![];
+      // /NCRC: prepare() verified the engine; skip NSIS's slower CRC pass.
+      let mut args = vec!["/NCRC".to_string()];
       if options.no_helper {
         args.push("/NOHELPER".to_string());
       }

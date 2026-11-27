@@ -230,6 +230,17 @@ check("S12 Setup starts no visible console window", () => {
   assert(/Command::new\("cmd\.exe"\)[\s\S]{0,120}\.creation_flags\(CREATE_NO_WINDOW\)/.test(shell), "the cleanup runs cmd with CREATE_NO_WINDOW");
 });
 
+check("S13 the engine never shows NSIS's verifying window", () => {
+  // RC2 Sandbox (slow disk): the silent engine's own CRC pass showed
+  // "verifying installer: N%" windows. Setup verifies the engine's SHA-256
+  // and signature before running it, so the engine runs with /NCRC, and the
+  // installer must not force the check.
+  const engineSrc = read("windows", "setup", "src", "engine.rs");
+  assert(/let mut args = vec!\["\/S"\.to_string\(\), "\/NCRC"\.to_string\(\)\]/.test(engineSrc), "silent and interactive Setup runs pass /NCRC");
+  assert(/let mut args = vec!\["\/NCRC"\.to_string\(\)\]/.test(read("windows", "setup", "src", "ui.rs")), "the WebView2 fallback passes /NCRC");
+  assert(!/^\s*CRCCheck\s+force/im.test(nsh), "installer.nsh does not force the CRC check (/NCRC would be ignored)");
+});
+
 for (const line of results) console.log(line);
 const failed = results.filter((line) => line.startsWith("FAIL")).length;
 if (failed) {

@@ -169,7 +169,11 @@ impl Options {
 
   /// The engine's command line. NSIS requires /D= last and unquoted.
   pub fn engine_args(&self, status: Option<&Path>) -> Vec<String> {
-    let mut args = vec!["/S".to_string()];
+    // /NCRC: Setup has just checked the engine's SHA-256 and signature, a
+    // stronger check than NSIS's own CRC32 of its payload. That CRC pass also
+    // shows a "verifying installer: N%" window, even with /S, whenever it
+    // takes long (seen in a slow Windows Sandbox), which Setup must not show.
+    let mut args = vec!["/S".to_string(), "/NCRC".to_string()];
     if self.all_users {
       args.push("/allusers".into());
     } else if self.current_user {
@@ -471,6 +475,7 @@ mod tests {
     assert!(o.silent && o.no_helper);
     let args = o.engine_args(Some(Path::new("C:\\t\\s.txt")));
     assert_eq!(args.first().unwrap(), "/S");
+    assert_eq!(args[1], "/NCRC", "the engine skips its own CRC pass (Setup verified it), so it shows no window");
     assert_eq!(args.last().unwrap(), "/D=D:\\Apps\\AnxOS Control Center", "/D= is last");
     assert!(args.contains(&"/ANXSTATUS=C:\\t\\s.txt".to_string()));
   }

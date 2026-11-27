@@ -2047,6 +2047,12 @@ and `win-unpacked` (314 desktop modules, 0 unresolved, Agent copies present).
 - Status: RC1 `32864023` is blocked by these findings; a new signed RC is
   needed, with the approval gates again.
 
+### RC2: run 45948852988, commit `ea09451f`
+
+- All jobs green; artifact checks 10/10 (Setup SHA-256 `f8d0422a10d2af4e84e4b9c7128ab7c5e4594e04e9b516492415529a7658cf0d`, engine `c5837f19…`, both Authenticode Valid); Linux `.deb` and AppImage verified and opened from a clean profile.
+- Windows Sandbox (Smart App Control enforced): every scenario passed, including the new reopen-from-tray check (window hidden to the tray and shown again, not recreated; no exception).
+- **Finding:** on a slow Sandbox disk the silent engine showed NSIS `verifying installer: N%` windows (its own CRC pass, during install and repair). Fixed locally: Setup passes `/NCRC` (it has already verified the engine`s SHA-256 and signature); `anxhost-setup-contract-smoke` S13. A new signed RC is needed.
+
 ### 216-G remaining risks
 
 - The real-app UI suites are still sensitive to a busy machine (as recorded
