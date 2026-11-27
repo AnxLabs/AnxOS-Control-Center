@@ -2,7 +2,7 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   brandName: "AnxHost",
   appName: "AnxOS-Control-Center",
   subtitle: "A desktop control center for Minecraft servers, modpacks, remote nodes, and automation.",
-  siteUrl: "https://anxoscontrolcenter.org",
+  siteUrl: "https://anxhost.anxlabs.net",
   logoPath: "/assets/anxhost-logo.png",
   latestVersion: "2.0",
   build: "216",

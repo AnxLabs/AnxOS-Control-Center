@@ -145,7 +145,7 @@ async function latestDownload(request, env, platform, ctx) {
 // approval) turns on the 301s from legacy pages to the new host.
 const LEGACY_HOST = "anxoscontrolcenter.org";
 const NEW_HOST = "anxhost.anxlabs.net";
-const CANONICAL_HOST = LEGACY_HOST;
+const CANONICAL_HOST = NEW_HOST;
 
 // Sign-in stays on the legacy host until the app and the account service
 // trust the new host (Build 217 and a separate approval): the new host sends

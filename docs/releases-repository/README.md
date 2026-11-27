@@ -26,7 +26,7 @@
 **AnxHost Control Center v2.0 Build 216 — Private Alpha**, published by AnxLabs on November 27, 2026.
 
 - **[Download from the latest release](https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/latest)** · [v2.0-build216 release page](https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build216)
-- Website: [anxoscontrolcenter.org](https://anxoscontrolcenter.org) · [Download page](https://anxoscontrolcenter.org/download) · [Release notes](https://anxoscontrolcenter.org/release-notes)
+- Website: [anxhost.anxlabs.net](https://anxhost.anxlabs.net) · [Download page](https://anxhost.anxlabs.net/download) · [Release notes](https://anxhost.anxlabs.net/release-notes)
 
 | Platform | Package | File |
 | --- | --- | --- |

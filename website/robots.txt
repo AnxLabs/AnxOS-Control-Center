@@ -15,4 +15,4 @@ Disallow: /reset-password
 Disallow: /signin
 Disallow: /signup
 
-Sitemap: https://anxoscontrolcenter.org/sitemap.xml
+Sitemap: https://anxhost.anxlabs.net/sitemap.xml
