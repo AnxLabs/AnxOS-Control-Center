@@ -3,32 +3,32 @@
   "pages": {
     "/": {
       "source": "website/index.html",
-      "sha256": "22818de5d559ba30c090f79062251303db3cddb6124935adf81aeacc1734341e",
+      "sha256": "161700cde6d19ea07f2f4f1e927f266dc9e1a58e1ad419db42cdba0d5306e49f",
       "lastmod": "2026-11-27"
     },
     "/release-notes": {
       "source": "website/release-notes.html",
-      "sha256": "318f962121627933fba8041d8edcfc5d775a3aa968240096fca0be441e828412",
+      "sha256": "37583cacc840bec950612785c5595bd951184f4b14d5fc71c0f9cca5f1877835",
       "lastmod": "2026-11-27"
     },
     "/download": {
       "source": "website/download.html",
-      "sha256": "b7bccd4e27df75709c5696754d656b30d413bcf93a1929cd92cf646cf0da8ac5",
+      "sha256": "6cc898a24ce6cf9773d7cd54f2febeaee59b8855b11e72b690c6274c8c76202c",
       "lastmod": "2026-11-27"
     },
     "/features/": {
       "source": "website/features/index.html",
-      "sha256": "cd965f7127b652749097d8c43b33aa70cc16cf99bfe5e05e02dbb74e9d57c64d",
+      "sha256": "ed939b26bea01484c4b7c23713491dd5c7221bd177cec28d663ef0ce4c6de081",
       "lastmod": "2026-11-27"
     },
     "/getting-started/": {
       "source": "website/getting-started/index.html",
-      "sha256": "cd6574781285d44326ddb966ff77dba8b98bd1ce6cf0fdead532ddb18475d78c",
+      "sha256": "eff93a658ee11e05ef629a10b302f565a05dfe91fd0d39eaca711e7ec66abca3",
       "lastmod": "2026-11-27"
     },
     "/system-requirements/": {
       "source": "website/system-requirements/index.html",
-      "sha256": "febc92e16ad434b448e7c9476ca7ac65209060ee400926b0398140c9c1bd4d1a",
+      "sha256": "1caeeed49f10a1e316b0990e2968b11a4142e3ff2ab20bea0ecfe13044ad71b0",
       "lastmod": "2026-11-27"
     },
     "/setup/": {
@@ -38,17 +38,17 @@
     },
     "/windows-installation/": {
       "source": "website/windows-installation/index.html",
-      "sha256": "ad0d861052c1bd0ac9c5273ab0a1ac44802cdaa6c1de9589471ebe8077fc78b2",
+      "sha256": "6943b7f3676427c9e9589ca3962ba23165853f67d62ee8b2f84751acb2ac63f6",
       "lastmod": "2026-11-27"
     },
     "/security-privacy/": {
       "source": "website/security-privacy/index.html",
-      "sha256": "5d7e92fe6b219bc5d44134beb524eb155dde9a65ccbe7f3a94b840a5e4d0a05a",
+      "sha256": "032a1ecd026b2b6e0f8810e731bba63a9883cb21c28966cbf0b3340b02303001",
       "lastmod": "2026-11-27"
     },
     "/faq/": {
       "source": "website/faq/index.html",
-      "sha256": "7aeec0dd196a2f8081957cf7d3d09446f6512369c1bcdeb254adef4676281026",
+      "sha256": "5e01492ac9e2970d6cde47b37dae376c5238bce67f559a1b27707a76fd4c6a8b",
       "lastmod": "2026-11-27"
     }
   }

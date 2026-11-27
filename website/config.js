@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxhost-logo.png",
   latestVersion: "2.0",
-  build: "215",
-  buildNumber: "215",
+  build: "216",
+  buildNumber: "216",
   channel: "Private Alpha",
-  releaseLabel: "Version 2.0 Build 215 Private Alpha",
-  releaseDate: "November 20, 2026",
-  releaseTag: "v2.0-build215",
+  releaseLabel: "Version 2.0 Build 216 Private Alpha",
+  releaseDate: "November 27, 2026",
+  releaseTag: "v2.0-build216",
   releaseRepository: {
     owner: "AnxLabs",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build215",
+  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build216",
   githubReleasesApiUrl: "https://api.github.com/repos/AnxLabs/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,48 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-2.0-build215.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build215/AnxOS-Control-Center-Setup-2.0-build215.exe"
+          fileName: "AnxOS-Control-Center-Setup-2.0-build216.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build216/AnxOS-Control-Center-Setup-2.0-build216.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build215-portable.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build215/AnxOS-Control-Center-2.0-build215-portable.exe"
+          fileName: "AnxOS-Control-Center-2.0-build216-portable.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build216/AnxOS-Control-Center-2.0-build216-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build215.AppImage",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build215/AnxOS-Control-Center-2.0-build215.AppImage"
+          fileName: "AnxOS-Control-Center-2.0-build216.AppImage",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build216/AnxOS-Control-Center-2.0-build216.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build215.deb",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build215/AnxOS-Control-Center-2.0-build215.deb"
+          fileName: "AnxOS-Control-Center-2.0-build216.deb",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build216/AnxOS-Control-Center-2.0-build216.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "2.0",
+          "build": 216,
+          "channel": "Private Alpha",
+          "tag": "v2.0-build216",
+          "date": "November 27, 2026",
+          "datetime": "2026-11-27",
+          "title": "AnxHost Control Center v2.0 — Build 216",
+          "summary": "AnxOS Control Center is now **AnxHost Control Center**. Build 216 is a new look and a new layout for everything you already use, with the same features, the same data and the same Agents. Your servers, computers, settings, backups, SSH profiles and paired phones carry over when you update.",
+          "changes": [
+              "**A new design throughout.** Every page uses one set of colours, type, spacing and status shapes. The title bar shows the current page, a search box, the command palette, the Assistant, a \"running\" pill for work in progress, and the selected computer's status.",
+              "**A simpler sidebar.** Run (Home, My Servers, Add Server), Infrastructure (Computers, Docker, Network) and Tools (Files, Terminal, Backups), with Activity, Security and Settings at the bottom. Related pages are now tabs: Terminal has SSH and Server consoles; Activity has Notifications, Task details and Maintenance; Computers has Agent Control; Network has Sharing and Addresses. Narrow windows get an icon rail (Ctrl+B opens the full sidebar).",
+              "**Light theme.** Settings › Appearance › Theme offers Dark (default), Light and System. Terminals, consoles and the code editor stay dark.",
+              "**Add Server in the main window.** Marketplace and Create Server no longer open separate windows. All 50 templates have new original artwork.",
+              "**Add Storage in the main window**, as a dialog.",
+              "**Phone Access** uses the same design, follows your phone's light or dark setting, and has the new AnxHost icon. Phones paired with Build 215 stay paired.",
+              "**A new installer, AnxHost Setup.** Its own window shows what it will do (new install, upgrade from AnxOS Control Center, update or repair), what is kept on this PC, and real progress, with no standard installer pages. It checks the install engine it carries (checksum and AnxLabs signature) before running it, and keeps the normal Windows permission prompts. Uninstall has its own window too. Silent installs (`/S`) and in-app updates work as before. On a PC without Microsoft Edge WebView2, Setup says so and continues with the standard installer.",
+              "**New names.** The shortcut and uninstall entry say AnxHost Control Center; the background service is shown as \"AnxHost Helper\". The install folder, data folder and background task keep their names, so updates are in place.",
+              "**Stay signed in on a trusted device.** \"Trust this device (stay signed in for 30 days)\" on the lock screen keeps the Local Owner signed in across restarts, stored only in Windows secure storage and renewed on every start. Removing the device in Security signs it out.",
+              "**Automatic lock when you are away.** The app locks after 15 minutes without use by default (5, 15, 30, 60 minutes or Never in Security), and when Windows locks or sleeps. **Lock Owner Workspace** now really signs you out until you sign in again.",
+              "**Phone: installed add-ons were never listed** on the Add-ons tab (since Build 211). They are now.",
+              "**Phone: Check this backup** always said \"done\"; it now shows the real result (verified or failed, with the reason)."
+          ],
+          "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build216"
+      },
       {
           "version": "2.0",
           "build": 215,
