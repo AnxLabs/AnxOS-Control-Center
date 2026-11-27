@@ -34,7 +34,7 @@ html, body { margin:0; height:100%; overflow:hidden; background:var(--ink-950); 
 .hero .word { width:190px; margin-top:14px; position:relative; }
 .hero .foot { position:absolute; bottom:18px; left:0; right:0; text-align:center; font-size:11px; color:var(--ink-400); }
 .chip-formerly { margin-top:16px; position:relative; font-size:11.5px; padding:5px 11px; border-radius:999px; color:var(--v-200); background:rgb(120 24 192 / .22); border:1px solid rgb(191 150 255 / .25); }
-.main { flex:1; min-width:0; display:flex; flex-direction:column; padding:28px 34px 22px; }
+.main { flex:1; min-width:0; display:flex; flex-direction:column; padding:28px 34px 22px; overflow-y:auto; }
 .steps { display:flex; gap:6px; align-items:center; margin-bottom:16px; font-size:11.5px; color:var(--ink-500); }
 .steps span { display:flex; align-items:center; gap:6px; }
 .steps i { width:7px; height:7px; border-radius:50%; background:var(--ink-700); display:inline-block; }
@@ -70,9 +70,9 @@ button { font:inherit; }
 .field { margin-bottom:14px; }
 .field .lbl { display:block; font-size:12px; color:var(--ink-400); margin-bottom:6px; font-weight:600; letter-spacing:.2px; }
 .path { display:flex; gap:8px; }
-.path .in { flex:1; padding:9px 12px; border-radius:9px; background:var(--ink-1000); border:1px solid rgb(255 255 255 / .09); color:var(--ink-100); font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; user-select:text; }
+.path .in { flex:1; min-width:0; padding:9px 12px; border-radius:9px; background:var(--ink-1000); border:1px solid rgb(255 255 255 / .09); color:var(--ink-100); font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; user-select:text; }
 .hint { font-size:12px; color:var(--ink-500); margin-top:6px; }
-.card { width:100%; text-align:left; display:flex; gap:12px; padding:13px 14px; border-radius:11px; background:var(--ink-900); border:1px solid rgb(255 255 255 / .07); margin-bottom:10px; color:inherit; }
+.card { width:100%; text-align:left; display:flex; gap:12px; padding:11px 14px; border-radius:11px; background:var(--ink-900); border:1px solid rgb(255 255 255 / .07); margin-bottom:8px; color:inherit; }
 .card.sel { border-color:rgb(164 106 245 / .55); background:linear-gradient(180deg, rgb(120 24 192 / .14), rgb(120 24 192 / .05)); }
 .card:disabled { opacity:.75; }
 .card .tg { width:36px; height:20px; border-radius:999px; flex:none; margin-top:2px; position:relative; background:var(--ink-700); transition:background .15s; }
@@ -82,6 +82,7 @@ button { font:inherit; }
 .card.sel .rd { border-color:var(--v-400); background:radial-gradient(circle, var(--v-400) 40%, transparent 46%); }
 .card b { display:block; font-size:13px; margin-bottom:2px; }
 .card span.t { font-size:12px; color:var(--ink-400); display:block; }
+.card span.t.uac { margin-top:6px; color:var(--warn); }
 .tag { display:inline-block; font-size:10px; font-weight:700; letter-spacing:.5px; padding:2px 7px; border-radius:5px; margin-left:6px; color:#fff; background:var(--v-600); vertical-align:1px; }
 .note { display:flex; gap:10px; align-items:flex-start; font-size:12px; color:var(--ink-300); padding:9px 12px; border-radius:9px; margin-bottom:10px; }
 .note.uac { background:rgb(242 184 75 / .07); border:1px solid rgb(242 184 75 / .20); } .note.uac .ic { color:var(--warn); }
@@ -116,7 +117,9 @@ button { font:inherit; }
 .errbox { text-align:left; margin-top:12px; width:100%; max-width:560px; border-radius:10px; padding:11px 13px; background:rgb(255 107 129 / .06); border:1px solid rgb(255 107 129 / .22); font-size:12.5px; color:var(--ink-300); }
 .errbox b { color:var(--ink-100); }
 .center .log { width:100%; max-width:560px; text-align:left; }
-.screen { display:none; flex:1; min-height:0; }
+/* min-width:0: a long install path must not widen the screen past the window
+   (RC1 Sandbox: Browse and the Install button were cut off). */
+.screen { display:none; flex:1; min-height:0; min-width:0; }
 .screen.show { display:flex; animation:rise .22s var(--ease) both; }
 @keyframes rise { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
 .hidden { display:none !important; }
@@ -221,10 +224,9 @@ function options() {
     <h1>Options</h1>
     <div class="field"><span class="lbl" id="lbl-folder">INSTALL FOLDER</span>
       <div class="path"><span class="in" aria-labelledby="lbl-folder" title="${esc(ui.target)}">${esc(ui.target)}</span>${existing ? "" : '<button class="btn" data-cmd="browse">Browse…</button>'}</div>
-      <div class="hint">${existing ? "Updates stay in the installed folder, so nothing has to move." : "The app only. Your servers and data live in your user profile."}${STATE.appBytes ? ` ${MB(STATE.appBytes)} needed` : ""}${free}.</div></div>
-    <button class="card ${ui.helper ? "sel" : ""}" data-cmd="helper" role="switch" aria-checked="${ui.helper}" ${helperKept ? "disabled" : ""}><span class="tg"></span><span><b>AnxHost Helper <span class="tag">RECOMMENDED</span></b><span class="t">${helperKept ? "Already set up on this PC and kept. " : ""}Runs in the background so the app can start, stop and watch servers on this PC, even after a restart. Includes AnxNet, which stays off until you join a network.</span></span></button>
-    ${ui.helper && !helperKept ? '<div class="note uac"><span class="ic">⛨</span><span>Windows will ask for administrator approval to set up the Helper. Setup never changes your security settings, firewall or other apps.</span></div>' : ""}
-    ${!existing ? `<button class="card ${ui.allUsers ? "sel" : ""}" data-cmd="allusers" role="switch" aria-checked="${ui.allUsers}"><span class="tg"></span><span><b>Install for everyone on this PC</b><span class="t">Windows asks for administrator approval. Leave this off to install only for you.</span></span></button>` : ""}
+      <div class="hint">${existing ? "Updates stay in the installed folder, so nothing has to move." : "App files only; your servers and data stay in your profile."}${STATE.appBytes ? ` ${MB(STATE.appBytes)} needed` : ""}${free}.</div></div>
+    <button class="card ${ui.helper ? "sel" : ""}" data-cmd="helper" role="switch" aria-checked="${ui.helper}" ${helperKept ? "disabled" : ""}><span class="tg"></span><span><b>AnxHost Helper <span class="tag">RECOMMENDED</span></b><span class="t">${helperKept ? "Already set up on this PC and kept. " : ""}Starts, stops and watches servers on this PC, even after a restart. Includes AnxNet, which stays off until you join a network.</span>${ui.helper && !helperKept ? '<span class="t uac">⛨ Windows asks for administrator approval. Your security settings, firewall and other apps are never changed.</span>' : ""}</span></button>
+    ${!existing ? `<button class="card ${ui.allUsers ? "sel" : ""}" data-cmd="allusers" role="switch" aria-checked="${ui.allUsers}"><span class="tg"></span><span><b>Install for everyone on this PC</b><span class="t">Needs administrator approval. Off: only your account.</span></span></button>` : ""}
     <div class="spacer"></div>
     <div class="actions"><span class="grow"></span><button class="btn ghost" data-cmd="back">Back</button><button class="btn primary" data-primary data-cmd="go">${VERB}</button></div></div>`);
 }

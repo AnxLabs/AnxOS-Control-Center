@@ -235,6 +235,8 @@ const TIERS = {
     ["node", ["scripts/installer-signature-smoke.js"]],
     // Build 216-D: AnxHost Setup, its engine and the updater agree.
     ["node", ["scripts/anxhost-setup-contract-smoke.js"]],
+    // Build 216-D: every Setup screen fits its 820x520 window (RC1 Sandbox overflow).
+    ["node", ["scripts/anxhost-setup-layout-ui-qa.js"]],
     ["node", ["scripts/agent-deb-provenance-smoke.js"]],
     ["node", ["scripts/preserved-copy-dedupe-smoke.js"]],
     ["node", ["scripts/windows-signing-coverage-smoke.js"]],
