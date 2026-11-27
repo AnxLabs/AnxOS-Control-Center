@@ -84,9 +84,12 @@ pub fn delete_after_exit(paths: &[PathBuf]) {
     }
     script.push_str(&format!(" & rmdir /s /q \"{p}\" 2>nul & del /f /q \"{p}\" 2>nul"));
   }
+  // CREATE_NO_WINDOW alone: cmd gets a hidden console that ping inherits.
+  // With DETACHED_PROCESS, Windows ignores CREATE_NO_WINDOW, cmd has no
+  // console and ping opened its own visible window (RC1 Sandbox).
   let _ = Command::new("cmd.exe")
     .raw_arg(format!("/d /c \"{script}\""))
-    .creation_flags(CREATE_NO_WINDOW | 0x0000_0008 /* DETACHED_PROCESS */)
+    .creation_flags(CREATE_NO_WINDOW)
     .spawn();
 }
 

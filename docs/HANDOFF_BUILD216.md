@@ -1934,6 +1934,12 @@ the gate** (ports helper). `qa:website` 12/12. Tree clean afterwards.
   kept) but still reported no engine status: Setup quoted `/D=` and
   `/ANXSTATUS=` (AGENTS.md lesson). Fixed in the next commit and rebuilt.
 
+- Run 45917465098 (`8e617039`): Sandbox fresh install, repair, uninstall and
+  silent install all passed with measured progress (3% to 100%), but the
+  cleanup after Setup closed opened a visible `ping` console window
+  (`DETACHED_PROCESS` makes Windows ignore `CREATE_NO_WINDOW`). Fixed in the
+  next commit (`anxhost-setup-contract-smoke` S12) and rebuilt.
+
 ### 216-G remaining risks
 
 - The real-app UI suites are still sensitive to a busy machine (as recorded

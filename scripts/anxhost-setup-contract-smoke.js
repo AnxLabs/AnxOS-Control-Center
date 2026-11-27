@@ -219,6 +219,17 @@ check("S11 the engine and the uninstaller get NSIS's raw command line", () => {
   assert(/fn nsis_args_reach_the_program_unquoted/.test(engineSrc), "cargo test covers a path with spaces");
 });
 
+check("S12 Setup starts no visible console window", () => {
+  // RC1 Sandbox: the cleanup after Setup closed used DETACHED_PROCESS, which
+  // makes Windows ignore CREATE_NO_WINDOW, so ping opened a console window.
+  for (const name of ["shell.rs", "engine.rs", "uninstall.rs", "apps.rs", "ui.rs"]) {
+    const src = read("windows", "setup", "src", name);
+    assert(!/creation_flags\([^)]*(DETACHED_PROCESS|0x0000_0008|0x00000008|0x8\b)/.test(src), `${name} does not start a process with DETACHED_PROCESS`);
+  }
+  const shell = read("windows", "setup", "src", "shell.rs");
+  assert(/Command::new\("cmd\.exe"\)[\s\S]{0,120}\.creation_flags\(CREATE_NO_WINDOW\)/.test(shell), "the cleanup runs cmd with CREATE_NO_WINDOW");
+});
+
 for (const line of results) console.log(line);
 const failed = results.filter((line) => line.startsWith("FAIL")).length;
 if (failed) {
