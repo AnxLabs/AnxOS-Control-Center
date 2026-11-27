@@ -2180,7 +2180,7 @@ Owner decision: the website moves to `anxhost.anxlabs.net`;
   - The release promoted to stable Latest, and the source-repository pointer updated.
   - The Releases README managed section updated.
   - Guarded Pages deploy 45985544100 succeeded, as production deployment `f198efcf`. Cloudflare skipped the bot's `dev` push, as it skipped ours.
-- **Public checks (all pass except the Releases README header):**
+- **Public checks (all pass):**
   - Both repositories report Latest `v2.0-build216`.
   - The updater's `latest.yml` and `update-manifest.json` at `releases/latest` are Build 216.
   - `config.js` on both hosts is Build 216, with `siteUrl` still legacy.
@@ -2189,7 +2189,7 @@ Owner decision: the website moves to `anxhost.anxlabs.net`;
   - All four download API platforms answer 302 to the Build 216 files, and the files answer 206.
   - `website-launch-check --stage=deployed` passes 15 of 15: 64 of 64 download requests redirect, and the new host is noindex.
   - `npm run qa:website` passes 18 of 18 on `f70f3dcd`.
+- **Releases README header (owner approved 2026-11-27):** above its managed markers it still read "AnxOS Control Center — Releases" with the old logo, because promotion only rewrites the managed section. It was replaced with `docs/releases-repository/README.md` (Releases `main` commit `c5c77c20`). The live file now equals the repository copy, and `release-docs --check` passes on it. The remaining "AnxOS" text there is the "formerly" line and the frozen file and repository names.
 - **Not done (owner decisions):**
-  - The Releases repository README header, above the managed markers, still reads "AnxOS Control Center — Releases" with the old logo. Promotion only rewrites the managed section; the renamed header in `docs/releases-repository/README.md` has never been copied over.
   - Phase 3 (canonical switch and redirects).
   - Build 217 (sign-in on the new host, in-app wording).
