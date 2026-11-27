@@ -897,6 +897,9 @@ let developerUpdateBusy = false;
 let activeSettingsCategory = "general";
 let settingsSaveInFlight = false;
 let securityState = { setupRequired: false, authenticated: false, user: null };
+// True once the first security status answer (or its failure) is in, so the
+// startup screen can tell "locked" from "not known yet".
+let securityStatusLoaded = false;
 let localSetupGateDismissed = false;
 let localOwnerProtectedRefreshPromise = null;
 let accountState = { authenticated: false, account: null, pending: null, configured: false };
@@ -986,6 +989,7 @@ let sshConnectRequestInFlight = false;
 let lastAmpRefreshAt = 0;
 let ampRendererReceiveCount = 0;
 let latestAmpSnapshot = null;
+let latestAmpSnapshotNodeId = null;
 let latestPlayitSnapshot = null;
 let latestDockerSnapshot = null;
 let dockerWorkspaceState = null;
@@ -1377,6 +1381,10 @@ const sshSessionFailures = new Map();
 const sshRemovedSessionIds = new Set();
 let sshSessionPollInFlight = false;
 const AMP_REFRESH_INTERVAL_MS = 2000;
+// AMP is configured on the Agent, outside the app (the app only reads it). While
+// the Agent reports it is not configured, checking every 2 s found nothing new:
+// it was a quarter of Home's idle Agent requests in the Build 217 baseline.
+const AMP_UNCONFIGURED_REFRESH_INTERVAL_MS = 60000;
 const DOCKER_STATS_REFRESH_INTERVAL_MS = 5000;
 const CONSOLE_LOG_REFRESH_INTERVAL_MS = 2000;
 const INSTANCE_PAGE_REFRESH_INTERVAL_MS = 5000;
@@ -1386,7 +1394,12 @@ const FILES_NODE_SERVER_PREFIX = "files-node-server:";
 const FILES_LOCAL_PROFILE_PREFIX = "files-profile:local:";
 const FILES_AGENT_PROFILE_PREFIX = "files-profile:agent:";
 const STARTUP_FALLBACK_MS = 4200;
-const STARTUP_MINIMUM_MS = 2000;
+// The startup screen's minimum duration (Settings > Startup can raise it to
+// 15 s). 217-A: 900 ms, the same default as the main process (which said 4200
+// while this said 2000); values equal to either old default are migrated
+// there, and read as the new default here until that migration has run.
+const STARTUP_MINIMUM_MS = 900;
+const LEGACY_STARTUP_MINIMUM_DEFAULTS_MS = [2000, 4200];
 const SSH_OUTPUT_LINE_LIMIT = 1500;
 const SSH_TERMINAL_DEFAULT_COLS = 120;
 const SSH_TERMINAL_DEFAULT_ROWS = 32;
@@ -3163,7 +3176,9 @@ function normalizeNumber(value, fallback, min, max) {
 }
 
 function getStartupMinimumMs() {
-  return normalizeNumber(readStoredSettings()["startup.minimumDurationMs"], STARTUP_MINIMUM_MS, 0, 15000);
+  const stored = readStoredSettings()["startup.minimumDurationMs"];
+  if (LEGACY_STARTUP_MINIMUM_DEFAULTS_MS.includes(stored)) return STARTUP_MINIMUM_MS;
+  return normalizeNumber(stored, STARTUP_MINIMUM_MS, 0, 15000);
 }
 
 function getStartupSoundVolume() {
@@ -4574,7 +4589,11 @@ function tryCompleteStartup(force = false) {
     return;
   }
 
-  const ready = startupState.systemReady && startupState.sequenceReady;
+  // While the app is locked no readings can arrive (polling waits for the
+  // owner), and sign-in is the next screen anyway: the startup screen used to
+  // wait for its fallback timer (6.4 s with Build 216's defaults) instead.
+  const signInFirst = securityStatusLoaded && isAppLockedForBackgroundWork();
+  const ready = (startupState.systemReady || signInFirst) && startupState.sequenceReady;
   const elapsed = Date.now() - startupState.startedAt;
   const minimumMs = getStartupMinimumMs();
 
@@ -4615,27 +4634,30 @@ function advanceStartupStep(stepName, message, detail) {
 function runStartupSequence() {
   setStartupStep("app", "active");
   updateStartupMessage("Starting AnxHost CC...", "Loading local infrastructure...");
+  // The steps keep their old proportions of the minimum duration (450, 950
+  // and 1450 ms of 2000), so a shorter splash still shows every step.
+  const minimumMs = getStartupMinimumMs();
 
   window.setTimeout(() => {
     setStartupStep("app", "complete");
     advanceStartupStep("services", "Loading local services...", "Preparing local service checks...");
-  }, 450);
+  }, Math.round(minimumMs * 0.225));
 
   window.setTimeout(() => {
     setStartupStep("services", "complete");
     advanceStartupStep("metrics", "Checking system metrics...", "Reading local system status...");
-  }, 950);
+  }, Math.round(minimumMs * 0.475));
 
   window.setTimeout(() => {
     setStartupStep("metrics", startupState.systemReady ? "complete" : "active");
     advanceStartupStep("control", "Preparing control center...", "Finalizing dashboard layout...");
-  }, 1450);
+  }, Math.round(minimumMs * 0.725));
 
   window.setTimeout(() => {
     startupState.sequenceReady = true;
     setStartupStep("control", "complete");
     tryCompleteStartup();
-  }, getStartupMinimumMs());
+  }, minimumMs);
 }
 
 function startStartupFallback() {
@@ -16922,6 +16944,15 @@ async function verifyJavaJarBeforeLaunch(instance, context = getNodeRequestConte
   }
 }
 
+// Row power actions are blocked while the list is being read, an action runs,
+// or the computer is switching. updateInstanceActionButtons() applies it to the
+// live rows and the row builder applies it to new cells: when only the builder
+// ignored it, every poll rebuilt every row's Actions cell (217-A: about 2,200
+// DOM nodes per 30 s and 74-113 ms long tasks with 150 servers).
+function isInstanceRowActionBlocked() {
+  return isNodeSwitching() || instancesRequestInFlight || instanceActionRequestInFlight || !getDesktopApiState().hasInstances;
+}
+
 function updateInstanceActionButtons() {
   const desktopApiState = getDesktopApiState();
   const selectedInstance = findInstance();
@@ -17008,8 +17039,9 @@ function updateInstanceActionButtons() {
     button.textContent = instanceActionRequestInFlight ? "Working..." : button.dataset.defaultLabel;
   });
 
+  const rowActionsBlocked = isInstanceRowActionBlocked();
   document.querySelectorAll("[data-instance-row-action]").forEach((button) => {
-    button.disabled = busy || !hasInstancesBridge || button.dataset.instanceRowDisabled === "true";
+    button.disabled = rowActionsBlocked || button.dataset.instanceRowDisabled === "true";
   });
 
   document.querySelectorAll('[data-instance-action="configure-fivem"]').forEach((button) => {
@@ -17460,7 +17492,7 @@ function buildInstanceActionCell(instance) {
     } else {
       button.textContent = item.label;
     }
-    button.disabled = item.disabled;
+    button.disabled = item.disabled || isInstanceRowActionBlocked();
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       selectInstance(instance.id);
@@ -32431,6 +32463,15 @@ function renderAmpSnapshot(snapshot) {
   updateTitlebar();
 }
 
+// A forced refresh (node switch, reload) and a different computer always read
+// again; an unconfigured AMP on the same computer is re-checked once a minute.
+function shouldDeferUnconfiguredAmpRefresh(requestContext, options = {}, now = Date.now()) {
+  if (options.force) return false;
+  if (latestAmpSnapshot?.configured !== false) return false;
+  if ((latestAmpSnapshotNodeId || null) !== (requestContext?.nodeId || null)) return false;
+  return now - lastAmpRefreshAt < AMP_UNCONFIGURED_REFRESH_INTERVAL_MS;
+}
+
 async function refreshAmpDashboard(options = {}) {
   if (ampRequestInFlight) {
     return;
@@ -32466,6 +32507,10 @@ async function refreshAmpDashboard(options = {}) {
     ampRequestInFlight = false;
     return;
   }
+  if (shouldDeferUnconfiguredAmpRefresh(requestContext, options)) {
+    ampRequestInFlight = false;
+    return;
+  }
 
   try {
     const snapshot = normalizeAmpSnapshotForRenderer(await desktopApiState.api.amp.getSnapshot(getNodeScopedPayload(requestContext)));
@@ -32473,6 +32518,7 @@ async function refreshAmpDashboard(options = {}) {
       return;
     }
     latestAmpSnapshot = snapshot;
+    latestAmpSnapshotNodeId = requestContext.nodeId || null;
     clearAgentPollingBackoff("amp", requestContext);
     ampRendererReceiveCount += 1;
     renderAmpSnapshot(latestAmpSnapshot);
@@ -38734,11 +38780,17 @@ function syncSecurityEventNotifications(events = []) {
   });
 }
 
+function markSecurityStatusLoaded() {
+  securityStatusLoaded = true;
+  if (!startupState.finished) tryCompleteStartup();
+}
+
 async function refreshSecurityState() {
   const desktopApiState = getDesktopApiState();
   const requestContext = getNodeRequestContext("security");
   if (!desktopApiState.hasSecurity) {
     securityState = { setupRequired: false, authenticated: true, user: null };
+    markSecurityStatusLoaded();
     securityDashboardState = {
       requestState: "unavailable",
       unavailable: true,
@@ -38755,8 +38807,10 @@ async function refreshSecurityState() {
       "Security status request timed out.",
       "SECURITY_STATUS_TIMEOUT",
     );
+    markSecurityStatusLoaded();
   } catch (error) {
     securityState = { setupRequired: false, authenticated: false, user: null };
+    markSecurityStatusLoaded();
     const message = normalizeIpcErrorMessage(error, "Security status unavailable.");
     securityDashboardState = {
       requestState: error?.code === "SECURITY_STATUS_TIMEOUT" ? "bounded-error" : "unavailable",

@@ -245,6 +245,8 @@ const TIERS = {
     ["node", ["scripts/anxhost-setup-layout-ui-qa.js"]],
     // Build 216: closing the main window raises no uncaught exception.
     ["node", ["scripts/window-close-ui-qa.js"]],
+    // 217-A: My Servers keeps unchanged rows during idle polling.
+    ["node", ["scripts/servers-list-polling-ui-qa.js"]],
     ["node", ["scripts/agent-deb-provenance-smoke.js"]],
     ["node", ["scripts/preserved-copy-dedupe-smoke.js"]],
     ["node", ["scripts/windows-signing-coverage-smoke.js"]],

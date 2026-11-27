@@ -6,6 +6,13 @@ const PRODUCT_BRAND = require("../shared/productBrand");
 
 const SETTINGS_SCHEMA_VERSION = 1;
 const ONBOARDING_VERSION = 1;
+// Build 217-A: the startup screen's minimum duration. The main process
+// defaulted to 4200 ms and the renderer to 2000 ms, so a new install held the
+// startup screen for at least 4.2 s on every launch after the first, although
+// the app is ready in about 1 s. One default now; saved values equal to either
+// old default are migrated like the old default display name.
+const STARTUP_MINIMUM_DURATION_DEFAULT_MS = 900;
+const LEGACY_STARTUP_MINIMUM_DURATION_DEFAULTS_MS = [2000, 4200];
 
 class SettingsStoreError extends Error {
   constructor(message, code, details = {}) {
@@ -36,7 +43,7 @@ const SETTING_DEFINITIONS = {
   "appearance.transparency": { category: "appearance", type: "boolean", default: true },
 
   "startup.enabled": { category: "startup", type: "boolean", default: true },
-  "startup.minimumDurationMs": { category: "startup", type: "number", default: 4200, min: 0, max: 15000 },
+  "startup.minimumDurationMs": { category: "startup", type: "number", default: STARTUP_MINIMUM_DURATION_DEFAULT_MS, min: 0, max: 15000 },
   "startup.sound": { category: "startup", type: "boolean", default: true },
   "startup.soundVolume": { category: "startup", type: "number", default: 42, min: 0, max: 100 },
   "startup.launchOnLogin": { category: "startup", type: "boolean", default: false, restartRequired: true },
@@ -200,24 +207,39 @@ function persistSettings(settings) {
   fs.renameSync(temp, target);
 }
 
-// 216-B1: a saved display name that is still an old product default becomes
-// the new product name. Only that field is rewritten, in the raw file, so no
-// other saved key (known or not) can be dropped. A name the user typed is kept.
-function migrateLegacyDisplayName(exists, raw) {
-  const stored = raw?.settings?.["app.displayName"];
-  if (!exists || typeof stored !== "string" || !PRODUCT_BRAND.legacyDefaultDisplayNames.includes(stored.trim())) return false;
+// Saved values that still equal a former default move to the current default:
+// 216-B1 the old product name as display name, 217-A the old startup-screen
+// minimums. Only those fields are rewritten, in the raw file and in one atomic
+// write, so no other saved key (known or not) can be dropped. A value the user
+// chose is kept.
+function legacyDefaultMigrations(settings = {}) {
+  const changes = {};
+  const displayName = settings["app.displayName"];
+  if (typeof displayName === "string" && PRODUCT_BRAND.legacyDefaultDisplayNames.includes(displayName.trim())) {
+    changes["app.displayName"] = PRODUCT_BRAND.productName;
+  }
+  if (LEGACY_STARTUP_MINIMUM_DURATION_DEFAULTS_MS.includes(settings["startup.minimumDurationMs"])) {
+    changes["startup.minimumDurationMs"] = STARTUP_MINIMUM_DURATION_DEFAULT_MS;
+  }
+  return changes;
+}
+
+function migrateLegacyDefaults(exists, raw) {
+  if (!exists || !raw?.settings || typeof raw.settings !== "object") return false;
+  const changes = legacyDefaultMigrations(raw.settings);
+  if (!Object.keys(changes).length) return false;
   const target = getSettingsPath();
-  const next = { ...raw, settings: { ...raw.settings, "app.displayName": PRODUCT_BRAND.productName } };
+  const next = { ...raw, settings: { ...raw.settings, ...changes } };
   const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(temp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(temp, target);
-  raw.settings["app.displayName"] = PRODUCT_BRAND.productName;
+  Object.assign(raw.settings, changes);
   return true;
 }
 
 function readPreferences() {
   const { exists, raw } = readRawFile();
-  if (Number.isInteger(raw?.schemaVersion) && raw.schemaVersion === SETTINGS_SCHEMA_VERSION) migrateLegacyDisplayName(exists, raw);
+  if (Number.isInteger(raw?.schemaVersion) && raw.schemaVersion === SETTINGS_SCHEMA_VERSION) migrateLegacyDefaults(exists, raw);
   const schemaVersion = Number.isInteger(raw?.schemaVersion) ? raw.schemaVersion : 0;
   if (schemaVersion > SETTINGS_SCHEMA_VERSION) {
     throw new SettingsStoreError(
@@ -304,6 +326,8 @@ function resetPreferences(category = null) {
 
 module.exports = {
   SETTINGS_SCHEMA_VERSION,
+  STARTUP_MINIMUM_DURATION_DEFAULT_MS,
+  LEGACY_STARTUP_MINIMUM_DURATION_DEFAULTS_MS,
   SettingsStoreError,
   ONBOARDING_VERSION,
   SETTING_DEFINITIONS,

@@ -1,4 +1,229 @@
-# PLANS.md — Build 216: AnxHost CC Rebirth
+# PLANS.md — AnxHost CC
+
+This file holds the plan of the build in progress first, then the plans of
+earlier builds, kept unchanged as the record.
+
+- **Build 217: Operation Refinement** (in progress, below)
+- **Build 216: AnxHost CC Rebirth** (complete; published 2026-11-27, see
+  "Build 216" further down)
+
+---
+
+# Build 217: Operation Refinement
+
+| Field | Value |
+| --- | --- |
+| Product | **AnxHost Control Center v2.0 Build 217** |
+| Status | Plan written 2026-11-27 from the owner's Build 217 brief. Local development under way; nothing pushed. |
+| Baseline | `origin/dev` at `87cf3d56`. Build 216 was published from `1212d772` (`v2.0-build216`), and the website has been canonical on `anxhost.anxlabs.net` since 2026-11-27. |
+| Development branch | `claude/anxhost-build-217`, created from `87cf3d56` |
+| Governing protocol | `AGENTS.md` (ADP) |
+| Handoff | `docs/HANDOFF_BUILD217.md` |
+| Motto | 216 made it beautiful; 217 makes it fast. |
+
+## 1. Objective
+
+Refine Build 216 rather than redesign it:
+
+- Make it measurably faster and lighter.
+- Polish the UI.
+- Move the app onto the new domain.
+- Make updates safer.
+- Polish the phone app.
+- Investigate optional AnxNet infrastructure on the legacy domain.
+
+Every one of the 1,573 mapped capabilities stays (the capability inventory
+check stays green).
+
+### Out of scope
+
+- Build 218 and later, AI hosting, native architecture, a full update
+  framework (SAUS).
+- Rebuilding the installer architecture.
+- Production changes without separate approval:
+  - Supabase, authentication policy, DNS, public gateways, new public ports,
+    paid infrastructure
+  - Agent upgrades on Anxlab or the VPS
+  - pushes, signed RCs, deployment, publication
+
+## 2. Sequence
+
+One active writer. Phases run in this order. Each one is recorded in the
+handoff with its start and finish times, elapsed time, commits, tests and
+blockers.
+
+```
+217-A Performance -> 217-B UI polish -> 217-C Domain and account
+  -> 217-E Installer and update reliability -> 217-F Mobile
+  -> 217-D AnxNet infrastructure (investigation and review)
+  -> 217-G Stabilization and RC preparation (stop at the RC approval gate)
+```
+
+217-A goes first: its baseline has to be measured on unchanged Build 216
+code. 217-D is mostly investigation and review, so it runs late; it never
+blocks the rest. If any phase is blocked by something outside the
+repository, the safe work continues.
+
+## 3. Phases and finish lines
+
+### 217-A — Performance
+
+1. **Baseline.** A lightweight Build 216 baseline is recorded with one
+   repeatable tool (`scripts/anxhost-perf-baseline.js`):
+   - cold start and warm start (renderer ready, sidebar ready);
+   - idle memory and CPU after a settle period;
+   - Agent and API requests per minute while idle on Home and on My Servers.
+
+   The app runs off-screen with an isolated profile and the fixture Agent.
+2. **Bottlenecks.** Real bottlenecks are found from that evidence (profiles,
+   request logs), not guessed:
+   - duplicate Agent polling and API requests;
+   - work for hidden screens;
+   - large server, Docker and Marketplace lists;
+   - lazy loading of inactive screens where that is safe.
+3. **Fixes.** Each fix has a check that fails on the old code, and no
+   capability is lost.
+4. **Comparison.** A same-day A/B against Build 216, by median of
+   alternating rounds. Targets: 20–30% faster startup and 15–25% lower idle
+   memory where achievable. These are targets, not requirements; results are
+   reported as measured. No endless benchmarks.
+
+### 217-B — UI and experience polish
+
+- Refine spacing, typography, transitions and responsive layouts, using the
+  approved tokens and branding.
+- Remove duplicate controls while keeping every capability reachable.
+- Improve dialogs, menus, loading states and progress feedback.
+- Fix Dark, Light and System theme inconsistencies.
+- Marketplace: artwork presentation, search and filters.
+- Finish the user-visible "AnxOS" wording. Use the allowlist; frozen
+  identifiers stay (Build 216 PLANS, section 6).
+- Finish line: the brand allowlist check has no user-visible "AnxOS" left
+  outside the frozen and "formerly" uses. The theme checks pass in all three
+  themes. The touched UI suites pass. Capabilities stay 1,573 of 1,573.
+
+### 217-C — Domain and account integration
+
+- `anxhost.anxlabs.net` becomes the primary site in the app:
+  - sign-in and activation links;
+  - the account and device-login pages;
+  - the website base URL;
+  - the update fallback (new origin first, then legacy).
+- The trusted host list grows; nothing is removed. A new frozen entry records
+  the new host, and FI-UPD-01 (`anxoscontrolcenter.org`) stays.
+- Existing accounts, remembered sessions (216-E) and older clients keep
+  working. Legacy sign-in, download and update endpoints stay served.
+- Prepare, but do not apply:
+  - the Supabase change: add `https://anxhost.anxlabs.net` to
+    `ANXOS_ALLOWED_ORIGINS`, the functions' built-in lists and the auth
+    redirect URLs;
+  - the website change: serve sign-in on the new host and remove the worker's
+    sign-in 302s once Supabase allows the origin.
+- Verify sign-in, sign-out, recovery and device activation against a local
+  stand-in, and against production after the approved change.
+- **Approval:** Supabase and authentication-policy changes, and the website
+  change that moves sign-in.
+
+### 217-D — AnxNet infrastructure (investigation)
+
+Investigate optional AnxNet services under the legacy domain:
+
+- `net.anxoscontrolcenter.org`: a private DNS namespace;
+- `relay.anxoscontrolcenter.org`: a relay;
+- `edge.anxoscontrolcenter.org`: a gateway.
+
+The design must:
+
+- keep `.internal` names working;
+- support a configurable DNS suffix and user-owned domains where practical;
+- keep private device records out of public DNS;
+- keep encryption, enrollment, network isolation and owner authorization;
+- reuse the existing edge (`src/anxnet/edge.js`).
+
+Deliverable: a design and a security and abuse review in
+`docs/anxhost/ANXNET_INFRASTRUCTURE.md`. Code only where it is safe and
+local, for example a configurable suffix with `.internal` as the default.
+
+**Approval:** any DNS change, public port, public gateway, deployment or paid
+infrastructure.
+
+### 217-E — Installer and update reliability
+
+On the existing Rust AnxHost Setup and NSIS engine:
+
+- Ask the running app to quit gracefully before the engine runs. The app
+  flushes pending state and configuration saves and refuses to quit during a
+  sensitive operation (for example a restore or a SteamCMD update) unless the
+  user confirms.
+- Detect and recover verified orphan `*.tmp` files at startup (the RC3
+  acceptance finding).
+- Improve recovery from an interrupted upgrade, and polish the remaining
+  progress and layout issues.
+- Keep signing, frozen identifiers, Helper and Agent compatibility. No new
+  installer architecture and no SAUS.
+
+### 217-F — Mobile experience
+
+Polish the Phone Access PWA:
+
+- touch targets and navigation;
+- console and file management;
+- loading, reconnect and offline states;
+- Dark and Light consistency;
+- portrait and landscape layouts;
+- battery-efficient polling: back off when hidden or offline.
+
+Permissions, pairing, certificates and the gateway API contracts stay
+unchanged.
+
+### 217-G — Stabilization and RC preparation
+
+- Verify capability preservation (1,573 of 1,573), security boundaries,
+  upgrade compatibility from Build 216, and the measured performance results.
+- Fix genuine regressions.
+- Update the release notes and known limitations.
+- Write `docs/HANDOFF_BUILD217.md`.
+- Run the full release gate (`qa:release`, `rc:validate`, `qa:website`).
+- Stop at the RC approval gate.
+
+## 4. Test strategy
+
+- Focused checks during development:
+  - `node --check` on changed files;
+  - the smokes and UI suites for touched areas;
+  - `frozen-identifiers`;
+  - `git diff --check`.
+- Valid earlier evidence is reused and cited by commit.
+- The full release validation runs once, at 217-G.
+- Never weaken, skip or loosen a test, or raise a time limit, to pass. A test
+  is ported only when an approved requirement changed, and the handoff says so.
+- Performance is judged by same-day alternating rounds compared by median
+  (Build 216 lesson), never by means of a few runs or numbers from another day.
+
+## 5. Approval boundaries
+
+The ADP Approval Matrix applies, plus:
+
+| Action | Approval |
+| --- | --- |
+| Commits | A local checkpoint commit when a phase is complete, as in Build 216 (the owner's campaign instruction of 2026-11-24, which the Build 217 brief keeps: "follow existing commit approvals"). Never pushed without approval. |
+| Every push | Explicit, each time |
+| Supabase, authentication policy, DNS, public ports, gateways, paid infrastructure | Separate production approval |
+| Agent upgrades on production nodes | Separate approval |
+| Changes to GitHub workflows or signing configuration | Explicit |
+| Deleting files, legacy code or data | Explicit, naming the targets |
+| Signed RC build, installing it, publication | ADP release workflow (`confirmed`, `done`, `🚀 publish`) |
+
+## 6. Decision log
+
+| Date | Decision |
+| --- | --- |
+| 2026-11-27 | Build 217 "Operation Refinement" from the owner's brief: phases 217-A to 217-G, solo, no Ultracode, no `/goal`; refine rather than redesign; production changes separately approved. |
+
+---
+
+# Build 216: AnxHost CC Rebirth (complete)
+
 
 | Field | Value |
 | --- | --- |
