@@ -71,21 +71,49 @@ async function makeResources(dir, { withAnxNet, withAgentCopies }) {
       assert(Object.values(result.agentCopies).every((present) => !present), JSON.stringify(result.agentCopies));
     });
 
-    await check("P3 Agent extraResources folders the desktop needs are separately rooted in files", () => {
-      const fileSets = pkg.build.files.filter((entry) => typeof entry === "object");
-      const rootedFrom = new Set(fileSets.map((entry) => entry.from));
-      const desktopNeeds = { "src/anxnet": "src/**/*", "src/services": "src/**/*", "src/shared": "src/**/*", agent: "agent/src/**/*" };
+    await check("P3 on Linux, every desktop module survives electron-builder's extraResources exclusions", () => {
+      // Emulates app-builder-lib 26 on Linux (platformPackager + fileMatcher +
+      // util/filter): each extraResources pattern, joined to its "from" with
+      // posix paths, becomes an exclusion that is tested against every app
+      // file set's own relative paths. (On Windows the join uses backslashes
+      // and never matches, which is why only Linux packages broke.)
+      const { Minimatch } = require(path.join(ROOT, "node_modules", "minimatch"));
+      const mm = (pattern) => new Minimatch(pattern, { dot: true });
+      const excludes = [];
       for (const resource of pkg.build.extraResources) {
-        const need = desktopNeeds[resource.from];
-        if (!need) continue;
-        assert(pkg.build.files.includes(need), `${need} is part of the app`);
-        assert(rootedFrom.has(resource.from), `"${resource.from}" (copied to ${resource.to}) also needs a separately rooted files entry, or Linux packages lose it`);
+        const from = resource.from.replace(/\\/g, "/");
+        if (!resource.filter || !resource.filter.length) { excludes.push(mm(from)); continue; }
+        for (const pattern of resource.filter) {
+          const joined = path.posix.join(from, pattern);
+          excludes.push(mm(joined));
+          if (!joined.includes(".") && !/[*?[{]/.test(joined)) excludes.push(mm(`${joined}/**/*`));
+        }
       }
-      const agentSet = fileSets.find((entry) => entry.from === "agent");
-      assert(agentSet && agentSet.to === "agent" && agentSet.filter.includes("package.json") && agentSet.filter.includes("src/**/*"), "agent/package.json and agent/src are packed from their own root");
-      const anxnetSet = fileSets.find((entry) => entry.from === "src/anxnet");
-      assert(anxnetSet && anxnetSet.to === "src/anxnet" && anxnetSet.filter.includes("**/*.js"), "src/anxnet is packed from its own root");
+      const excluded = (relative) => excludes.some((pattern) => pattern.match(relative));
+      const matchAll = (relative, patterns) => {
+        let match = false;
+        for (const pattern of patterns) {
+          const p = mm(pattern);
+          if (match !== p.negate) continue;
+          match = p.match(relative);
+        }
+        return match;
+      };
+      const walk = (dir) => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}/${e.name}`) : [`${dir}/${e.name}`]));
+      const packed = new Set();
+      const rootPatterns = pkg.build.files.filter((entry) => typeof entry === "string");
+      const needed = ["src/anxnet", "src/services", "src/shared", "agent/src"].flatMap(walk).filter((f) => f.endsWith(".js")).concat("agent/package.json");
+      for (const file of needed) if (matchAll(file, rootPatterns) && !excluded(file)) packed.add(file);
+      for (const set of pkg.build.files.filter((entry) => typeof entry === "object")) {
+        for (const file of needed.filter((f) => f.startsWith(`${set.from}/`))) {
+          const relative = file.slice(set.from.length + 1);
+          if (matchAll(relative, set.filter || ["**/*"]) && !excluded(relative)) packed.add(`${set.to}/${relative}`);
+        }
+      }
+      const lost = needed.filter((file) => !packed.has(file));
+      assert.deepStrictEqual(lost.slice(0, 12), [], `${lost.length} desktop file(s) would be missing from the Linux app.asar`);
       assert(pkg.build.extraResources.some((r) => r.from === "src/anxnet" && r.to === "local-agent-runtime/src/anxnet"), "the Agent keeps its own AnxNet copy");
+      assert(pkg.build.extraResources.some((r) => r.from === "agent" && r.to === "local-agent-runtime/agent"), "the Agent keeps its own copy of agent/src");
     });
 
     await check("P4 comments are not requires", async () => {

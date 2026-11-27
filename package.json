@@ -584,12 +584,18 @@
       "agent/package.json",
       "agent/src/**/*",
       {
+        "from": "agent/src",
+        "to": "agent/src",
+        "filter": [
+          "**/*",
+          "!**/*.map"
+        ]
+      },
+      {
         "from": "agent",
         "to": "agent",
         "filter": [
-          "package.json",
-          "src/**/*",
-          "!**/*.map"
+          "package.json"
         ]
       },
       "package.json",
