@@ -30,8 +30,8 @@ Plan: `PLANS.md` (Build 217 section). Protocol: `AGENTS.md` (ADP).
 | 217-C and 217-D (worked on while the 217-B real-app suites ran, so the times overlap) | 2026-11-27T12:02:29-07:00 | 2026-11-27T12:30:23-07:00 | about 0 h 28 min |
 | 217-E | 2026-11-27T12:31:12-07:00 | 2026-11-27T12:40:41-07:00 | 0 h 10 min (investigation done earlier, while suites ran) |
 | 217-F | 2026-11-27T12:40:41-07:00 | 2026-11-27T12:46:12-07:00 | 0 h 06 min |
-| 217-G | 2026-11-27T12:46:38-07:00 | 2026-11-27T13:20:00-07:00 | 0 h 33 min |
-| **Build 217 total** | 2026-11-27T10:28:59-07:00 | 2026-11-27T13:20:00-07:00 | **2 h 51 min** |
+| 217-G | 2026-11-27T12:46:38-07:00 | 2026-11-27T13:17:45-07:00 | 0 h 31 min |
+| **Build 217 total** | 2026-11-27T10:28:59-07:00 | 2026-11-27T13:17:45-07:00 | **2 h 49 min** |
 
 ## 217-A Performance
 
@@ -236,6 +236,6 @@ Not run:
 
 ## Next (needs the owner)
 
-- **Approval to push** `claude/anxhost-build-217` (8 commits after `87cf3d56`) to `dev`, then the signed RC build, the RC report, and `confirmed` for the in-place upgrade (ADP release workflow).
+- **Approval to push** `claude/anxhost-build-217` (the 8 Build 217 commits after `87cf3d56`) to `dev`, then the signed RC build, the RC report, and `confirmed` for the in-place upgrade (ADP release workflow).
 - **Owner decisions:** the startup sound's default (memory); the 217-C production steps (Supabase origins, Auth redirect list, removing the website's sign-in 302).
-- **Housekeeping:** the scratch worktree `b216` used for the A/B comparison is removed at the end of this session.
+- **Housekeeping:** the scratch worktree `b216` used for the A/B comparison was removed at the end of the session (its `node_modules` junction first).
