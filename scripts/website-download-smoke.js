@@ -185,7 +185,7 @@ async function main() {
   assert(download.includes('href="/windows-installation/"') && downloadHtml.includes('href="/windows-installation/"'), "/download should link installation help to the clean Windows installation route.");
   assert(download.includes('href="/system-requirements/"') && downloadHtml.includes('href="/system-requirements/"'), "/download should link system requirements to the clean dedicated route.");
   assert(download.includes('id="system-requirements"') && download.includes('id="install-help"'), "/download should expose clean anchors for requirements and installation help.");
-  assert(download.includes('rel="canonical" href="https://anxoscontrolcenter.org/download"'), "/download should expose canonical metadata.");
+  assert(download.includes(`rel="canonical" href="${require("./website-hosts").canonicalOrigin()}/download"`), "/download should expose canonical metadata.");
   assert(downloadHtml.includes('data-download-page') && downloadHtml.includes("Download AnxHost for Windows"), "/download.html should serve visible compatibility content, not a blank redirect shell.");
   assert(!downloadHtml.includes('window.location.replace("/download"'), "/download.html must not redirect to itself through Cloudflare extensionless routing.");
   for (const html of [download, downloadHtml]) {

@@ -1,73 +1,100 @@
-# 216-B3 Domain migration plan (written plan only)
+# AnxHost website domain migration
 
-**Status: proposal for owner approval.** Nothing here has been done. Buying a
-domain, DNS, Supabase settings and production deploys are separately approved
-production steps (PLANS.md section 8), not part of 216 development.
+**Decision (owner, 2026-11-27):** the AnxHost website moves to
+**`https://anxhost.anxlabs.net`**, a subdomain of the existing `anxlabs.net`
+zone. No domain is bought. **`https://anxoscontrolcenter.org` stays registered
+and serving** for installed apps (sign-in, update fallback, downloads,
+release notes). Moving the app's own hard-coded references is Build 217 work;
+the accepted Build 216 RC3 is not changed.
 
-## Goal
+Approval gates still open (owner's words, 2026-11-27): changing authentication
+policies, redirecting production traffic, and deploying the redesigned website
+each need a separate approval.
 
-Serve the website from a new AnxHost domain while
-`anxoscontrolcenter.org` keeps working **permanently** for existing installs:
-sign-in, update fallbacks, download links and release notes.
+## Status (2026-11-27)
 
-## Where the current domain is used (verified 2026-11-25)
+| Step | State |
+| --- | --- |
+| Production deploys only from the guarded workflow | **Done.** The Pages project `anxos-control-center` had Git integration deploying every push to `dev` to production. `production_deployments_enabled` is now `false` (preview builds of every branch continue). Production changes only through `cloudflare-pages-deploy.yml` (`wrangler pages deploy`, which checks the site against the stable release). |
+| `anxhost.anxlabs.net` on the Pages project | **Added as a custom domain, waiting for its DNS record.** Cloudflare reports `CNAME record not set`; the wrangler login used here has no DNS write scope. Owner step: in the `anxlabs.net` zone add `CNAME anxhost → anxos-control-center.pages.dev`, proxied. Cloudflare then validates the hostname and issues its certificate. |
+| Download API 502s | **Fixed in the worker, not deployed.** Cause: GitHub's API answered the worker's uncached, unauthenticated lookups with 403 (shared-IP rate limit). See `website/_worker.js` and `scripts/website-download-resilience-smoke.js`. |
+| Host-aware routing | **Prepared, not deployed.** `website/_worker.js` ships with the legacy host canonical: the new host serves the same pages marked `noindex` and sends sign-in pages to the legacy host. |
+| Canonical switch and 301s | **Prepared, needs approval** (redirects production traffic). One command: `node scripts/website-hosts.js --switch=new`, then `node scripts/website-sitemap.js` and the website tier. |
+| Sign-in on the new host | **Not started; needs approval** (authentication policy) and Build 217. |
+| Search engines | **Prepared, owner accounts needed** (checklist below). |
 
-| Place | What it does | File |
+## How the two hosts behave
+
+`website/_worker.js` decides by host; `scripts/website-hosts.js` is the switch.
+
+| Request | Before the switch (now) | After `--switch=new` |
 | --- | --- | --- |
-| `OFFICIAL_SITE_ORIGIN` / `OFFICIAL_SITE_HOSTNAME` | Desktop sign-in host allowlist and website base URL | `src/shared/officialSite.js` (frozen FI-UPD-01), read by `src/services/accountAuthService.js` |
-| Update fallback | The updater reads `${OFFICIAL_SITE_ORIGIN}/config.js` when GitHub is unavailable | `src/services/updateManager.js` |
-| Release metadata | `siteUrl` in the website config and every generated canonical, sitemap and JSON-LD URL | `scripts/sync-website-release.js`, `src/shared/releaseConfig.js`, `scripts/release-docs.js`, `scripts/website-sitemap.js` |
-| Canonical host | `www.` and `*.pages.dev` redirect to the canonical host | `website/_worker.js` (`CANONICAL_HOST`) |
-| Account function CORS | Built-in allowed origin plus the `ANXOS_ALLOWED_ORIGINS` secret | `supabase/functions/anxos-account/index.ts`, `anxos-marketplace-curseforge/index.ts` |
-| IndexNow | Key file served at `/<key>.txt` on the site | `scripts/indexnow-submit.js`, `website/63065fedd3db1e49b0c6286f2bfa4350.txt` |
+| `anxoscontrolcenter.org` page (`/`, `/download`, `/features/`, …) | served, indexable | **301** to the same path and query on `anxhost.anxlabs.net` |
+| `anxoscontrolcenter.org` sign-in (`/account`, `/activate`, `/signin`, `/signup`, `/profile`, `/device*`, `/forgot-password`, `/reset-password`) | served | served (never redirected) |
+| `anxoscontrolcenter.org` `/config.js`, `/release-notes.json`, `/api/download/*`, IndexNow key, `robots.txt`, `sitemap.xml`, assets | served | served (installed apps and tools read them) |
+| `anxhost.anxlabs.net` page | served, `noindex` | served, indexable |
+| `anxhost.anxlabs.net` sign-in page | **302** to the same path on the legacy host | **302** to the same path on the legacy host |
+| `www.` of either host | 301 to the canonical host (sign-in and app paths to legacy) | same |
+| `*.pages.dev` | `noindex` | `noindex` |
 
-Installed Build 215 and earlier apps can only use `anxoscontrolcenter.org`.
-They will never learn a new host, so the old domain must keep serving sign-in,
-`config.js` and downloads for as long as those builds exist.
+Only `GET` and `HEAD` are redirected. The sign-in redirect is a 302 because
+it is temporary: it lasts until the app (Build 217) and the account service
+trust the new origin.
 
-## Selection criteria (owner decision)
+## What `--switch=new` changes
 
-- Short, spells "AnxHost" unambiguously, no hyphen.
-- `.com` preferred; `.app` or `.gg` acceptable (both HTTPS-only, which matches the site).
-- Available on Cloudflare Registrar, so DNS, Pages and the Worker stay in one account.
-- No trademark conflict in a basic search.
+Covered by `scripts/website-host-switch-smoke.js` (switch, check every
+surface, switch back byte for byte):
 
-## Steps (each a separately approved production step)
+- `website/_worker.js`: `CANONICAL_HOST = NEW_HOST` (turns on the 301s).
+- Every page's canonical link, `og:url`, `og:image`, Twitter image and
+  JSON-LD URLs; absolute sign-in links stay on the legacy host.
+- `robots.txt` sitemap line, `sitemap.xml` and `sitemap-state.json`.
+- `website/config.js` `siteUrl`, so the release generators
+  (`sync-website-release.js`, `release-docs.js`) and the READMEs follow.
+- Not changed: `website/account-config.js` (`siteUrl` stays legacy, so
+  Supabase sign-in emails and redirects keep working), GitHub download URLs,
+  and the app's `src/shared/officialSite.js` (frozen FI-UPD-01).
 
-1. **Register** the domain on Cloudflare (owner). Add it as a custom domain on
-   the existing Pages project. Both domains serve the same deployment.
-2. **App, additive, in a release:** add the new host to the sign-in allowlist
-   beside the old one, by turning `OFFICIAL_SITE_HOSTNAME` into a list with
-   the old host kept first until step 5. The frozen identifier FI-UPD-01 stays
-   (the old origin must remain), and a new frozen entry records the new host.
-   The update fallback tries the new origin, then the old one.
-3. **Supabase, additive:** add the new origin to `ANXOS_ALLOWED_ORIGINS`
-   (secret, no redeploy) and to the built-in list in both functions. Never
-   remove the old origin.
-4. **Website:** when a release carrying step 2 has been out for one update
-   cycle, switch `siteUrl` and the canonical host to the new domain.
-   `_worker.js` sends 301s from `anxoscontrolcenter.org/*` to the same path on
-   the new host for **HTML pages only**. `config.js`, `/api/download/*`,
-   `/release-notes.json`, sign-in pages and the IndexNow key keep being
-   served directly on the old host, without a redirect, because old apps fetch
-   them and some clients do not follow redirects on those paths.
-5. **Search:** regenerate the sitemap on the new host, keep a sitemap on the
-   old host listing the redirects, add the new host to Bing and Google
-   consoles, and run `website:indexnow` for both hosts.
-6. **Keep forever:** renew `anxoscontrolcenter.org` indefinitely (calendar
-   reminder and auto-renew); never repoint or drop it.
+## Search engines (owner accounts)
 
-## Tests to add with the implementation
+Do these after the DNS record exists and the switch is approved and deployed.
 
-- The sign-in allowlist accepts both hosts and nothing else (look-alike and
-  subdomain cases refused).
-- A Build 215 configuration (old host only) still signs in and still finds
-  updates through the fallback.
-- `_worker.js`: HTML paths redirect with 301 and keep the query string; the
-  exempt paths return 200 on the old host.
-- `release-consistency` and the website smokes pass with the new `siteUrl`.
+1. **Google Search Console:** add a property for `https://anxhost.anxlabs.net/`
+   (or a Domain property for `anxlabs.net`, verified by a DNS TXT record),
+   submit `https://anxhost.anxlabs.net/sitemap.xml`, and keep the
+   `anxoscontrolcenter.org` property. If Search Console offers Change of
+   Address for this move, use it; the 301s work without it.
+2. **Bing Webmaster Tools:** add the new site (or import it from Search
+   Console), submit the sitemap, and use Site Move if it is offered for this
+   move.
+3. **IndexNow:** the key file is served on both hosts. After the deploy,
+   `npm run website:indexnow -- --submit --all` submits the new host's
+   sitemap URLs (the script checks the live key first).
+4. **Canonicals:** before the switch every canonical names the legacy host
+   and the new host is `noindex`, so nothing competes. After it, every
+   canonical names the new host and the legacy pages answer 301.
+
+## Keep forever
+
+- Renew `anxoscontrolcenter.org` indefinitely (auto-renew on); never repoint
+  or drop it while any installed build can exist.
+- Never redirect `config.js`, `release-notes.json`, `/api/download/*` or the
+  sign-in pages away from it.
+
+## Build 217 (app, separate approval)
+
+- Add `anxhost.anxlabs.net` to the sign-in host list beside the legacy host
+  (a new frozen entry; FI-UPD-01 stays), and let the update fallback try the
+  new origin first, then the legacy one.
+- Add `https://anxhost.anxlabs.net` to Supabase `ANXOS_ALLOWED_ORIGINS` and
+  the functions' built-in list (additive; never remove the legacy origin).
+- Then sign-in pages can be served on the new host, and the 302s removed.
 
 ## Rollback
 
-Each step is additive until step 4. Rolling back step 4 means restoring the
-old `siteUrl` and canonical host; the redirects are in `_worker.js` only.
+- Routing: `node scripts/website-hosts.js --switch=legacy` and redeploy.
+- Production deploys from `dev` pushes: set `production_deployments_enabled`
+  back to `true` on the Pages project (not recommended).
+- The custom domain can be removed from the Pages project; the DNS record is
+  the owner's.

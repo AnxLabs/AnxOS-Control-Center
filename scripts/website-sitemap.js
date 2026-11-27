@@ -20,7 +20,8 @@ const ROOT = path.resolve(__dirname, "..");
 const SITE = path.join(ROOT, "website");
 const SITEMAP = path.join(SITE, "sitemap.xml");
 const STATE = path.join(SITE, "sitemap-state.json");
-const ORIGIN = "https://anxoscontrolcenter.org";
+// The canonical host (website/_worker.js CANONICAL_HOST, see website-hosts.js).
+const ORIGIN = require("./website-hosts").canonicalOrigin();
 
 // "/x" is served from x.html, "/x/" from x/index.html, "/" from index.html.
 function sourceFileFor(urlPath) {

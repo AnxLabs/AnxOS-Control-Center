@@ -37,8 +37,37 @@ These limitations are acceptable for Private Alpha if they are clearly communica
   `anxos.*` labels, the phone's cookie and certificate names, and the
   `anxoscontrolcenter.org` domain. Some frozen labels (for example the AnxOS
   Linux distribution name) still read AnxOS.
-- **The website rename is not deployed** and no domain was moved
-  (`docs/anxhost/DOMAIN_MIGRATION_PLAN.md` needs separate approval).
+- **The 216-B website rename went live through Cloudflare's Git deploy,**
+  which deployed every push to `dev` to production (the live site matched
+  `f8d9dfc2` and later, still describing Build 215). Since 2026-11-27 the
+  Pages project builds `dev` pushes as previews only; production changes only
+  through the guarded `cloudflare-pages-deploy.yml`. The redesigned website,
+  the download fix and the host routing are not deployed. The website is
+  moving to `anxhost.anxlabs.net`, with `anxoscontrolcenter.org` kept for
+  installed apps (`docs/anxhost/DOMAIN_MIGRATION_PLAN.md`).
+- **The app still says "AnxOS" in places.** Build 216 renamed the shell,
+  title bar, tray and settings, but some screens keep the old name in their
+  text: Add Computer ("AnxOS Agent", "Install AnxOS there"), Settings
+  ("Customize AnxOS"), the AnxNet card ("AnxOS's own private network"),
+  "AnxOS-managed" server badges, Marketplace template publishers, the phone
+  access card and others (about 24 static texts in `index.html`; `app.js`
+  has more, some of them frozen file and package names). RC3 is accepted
+  unchanged; the rest of the rename is Build 217 work.
+- **Sign-in stays on `anxoscontrolcenter.org`.** The app trusts only that
+  host (`src/shared/officialSite.js`, frozen) and the account service's CORS
+  list has only that origin. Moving sign-in is Build 217 plus an approved
+  account-service change.
+- **Upgrades force-end a running app.** When the desktop app is running,
+  Setup's close step (electron-builder's NSIS engine) sends `taskkill`, which
+  the app treats as a window close and only hides to the tray, then
+  `taskkill /F` about 2 s later. A write in progress can be cut short. In RC3
+  acceptance this left a complete orphan `alerts.json.<pid>.<time>.tmp` beside
+  an intact `alerts.json`, with no data lost. Writes use temp-file-and-rename,
+  so the saved file stays whole, but an interrupted save is lost and its temp
+  file is never cleaned up. Every earlier build closed the app the same way.
+  Future improvement: before the engine runs, Setup asks the running app to
+  quit cleanly (finish pending writes, then exit), and the app removes stale
+  `*.tmp` files at startup.
 - **AnxHost Setup was tested unsigned on the development PC** (its window,
   packaging with a real signed engine, and the NSIS engine compile). Installing,
   upgrading and uninstalling with it are first tested from the signed release

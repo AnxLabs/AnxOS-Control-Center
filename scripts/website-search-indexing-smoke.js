@@ -25,6 +25,10 @@ const { pathToFileURL } = require("url");
 const repo = path.resolve(__dirname, "..");
 const site = path.join(repo, "website");
 const { planSitemap } = require("./website-sitemap");
+const { canonicalHost, LEGACY_HOST } = require("./website-hosts");
+const HOST = canonicalHost();
+const ORIGIN = `https://${HOST}`;
+const escapeRe = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 function loadConfig() {
   const sandbox = { window: {} };
@@ -38,19 +42,19 @@ async function main() {
   fs.copyFileSync(path.join(site, "_worker.js"), workerCopy);
   const worker = (await import(pathToFileURL(workerCopy).href)).default;
   const env = { ASSETS: { fetch: async () => new Response("<html>page</html>", { status: 200, headers: { "content-type": "text/html" } }) } };
-  const www = await worker.fetch(new Request("https://www.anxoscontrolcenter.org/release-notes?x=1"), env);
+  const www = await worker.fetch(new Request(`https://www.${LEGACY_HOST}/release-notes?x=1`), env);
   assert.strictEqual(www.status, 301);
-  assert.strictEqual(www.headers.get("location"), "https://anxoscontrolcenter.org/release-notes?x=1", "www keeps the path and query");
+  assert.strictEqual(www.headers.get("location"), `${ORIGIN}/release-notes?x=1`, "www keeps the path and query");
   for (const host of ["anxos-control-center.pages.dev", "3f9c2a1b.anxos-control-center.pages.dev"]) {
     const copy = await worker.fetch(new Request(`https://${host}/`), env);
     assert.strictEqual(copy.status, 200, `${host} still works for previews`);
     assert.strictEqual(copy.headers.get("x-robots-tag"), "noindex, nofollow", `${host} is never indexed`);
     assert.strictEqual(await copy.text(), "<html>page</html>");
   }
-  const apex = await worker.fetch(new Request("https://anxoscontrolcenter.org/"), env);
+  const apex = await worker.fetch(new Request(`${ORIGIN}/`), env);
   assert.strictEqual(apex.status, 200);
   assert.strictEqual(apex.headers.get("x-robots-tag"), null, "the real site is indexable");
-  const api = await worker.fetch(new Request("https://anxoscontrolcenter.org/api/download/latest/not-a-platform"), env);
+  const api = await worker.fetch(new Request(`https://${LEGACY_HOST}/api/download/latest/not-a-platform`), env);
   assert.strictEqual(api.status, 404, "the download API is unchanged");
   console.log("PASS I1 www redirects to the indexed address; pages.dev copies are noindex");
 
@@ -72,8 +76,8 @@ async function main() {
   fs.cpSync(site, copySite, { recursive: true, filter: (source) => !/[\\/]assets[\\/]/.test(source) });
   fs.appendFileSync(path.join(copySite, "faq", "index.html"), "\n<!-- a content change -->\n");
   const plan = planSitemap({ date: "2030-01-02", siteDir: copySite });
-  assert.deepStrictEqual(plan.changed, ["https://anxoscontrolcenter.org/faq/"], "only the changed page is re-dated");
-  assert.match(plan.sitemap, /<loc>https:\/\/anxoscontrolcenter\.org\/faq\/<\/loc>\s*<lastmod>2030-01-02<\/lastmod>/);
+  assert.deepStrictEqual(plan.changed, [`${ORIGIN}/faq/`], "only the changed page is re-dated");
+  assert.match(plan.sitemap, new RegExp(`<loc>${escapeRe(ORIGIN)}/faq/</loc>\\s*<lastmod>2030-01-02</lastmod>`));
   fs.writeFileSync(path.join(copySite, "sitemap.xml"), plan.sitemap);
   fs.writeFileSync(path.join(copySite, "sitemap-state.json"), plan.state);
   assert.deepStrictEqual(planSitemap({ date: "2030-01-03", siteDir: copySite }).changed, [], "a second run changes nothing");
@@ -101,10 +105,10 @@ async function main() {
 
   // I4
   const robots = fs.readFileSync(path.join(site, "robots.txt"), "utf8");
-  assert.match(robots, /^Sitemap: https:\/\/anxoscontrolcenter\.org\/sitemap\.xml$/m);
+  assert.match(robots, new RegExp(`^Sitemap: ${escapeRe(ORIGIN)}/sitemap\\.xml$`, "m"));
   const disallowed = [...robots.matchAll(/^Disallow:\s*(\S+)/gm)].map((match) => match[1]);
   for (const url of urls) {
-    const urlPath = url.loc.replace("https://anxoscontrolcenter.org", "") || "/";
+    const urlPath = url.loc.replace(ORIGIN, "") || "/";
     assert.ok(!disallowed.some((rule) => urlPath.startsWith(rule)), `${url.loc} is not blocked by robots.txt`);
   }
   console.log("PASS I4 robots.txt names the sitemap and blocks none of its pages");
@@ -114,7 +118,7 @@ async function main() {
   const indexnow = require("./indexnow-submit");
   const { key, keyLocation } = indexnow.findKey();
   assert.match(key, /^[0-9a-f]{32}$/);
-  assert.strictEqual(keyLocation, `https://anxoscontrolcenter.org/${key}.txt`);
+  assert.strictEqual(keyLocation, `${ORIGIN}/${key}.txt`);
   const newest = urls.map((url) => url.lastmod).sort().pop();
   const planned = indexnow.planSubmission();
   assert.deepStrictEqual(planned.payload.urlList, urls.filter((url) => url.lastmod >= newest).map((url) => url.loc), "only the newest changes are submitted");
@@ -134,7 +138,7 @@ async function main() {
   assert.strictEqual(accepted.submitted, planned.payload.urlList.length);
   const post = calls.find((call) => call.url === indexnow.ENDPOINT);
   assert.strictEqual(post.options.method, "POST");
-  assert.deepStrictEqual(JSON.parse(post.options.body), { host: "anxoscontrolcenter.org", key, keyLocation, urlList: planned.payload.urlList });
+  assert.deepStrictEqual(JSON.parse(post.options.body), { host: HOST, key, keyLocation, urlList: planned.payload.urlList });
   await assert.rejects(indexnow.submit(planned.payload, { fetchImpl: fakeFetch(key, 403) }), /HTTP 403/);
   console.log(`PASS I5 IndexNow submits ${planned.payload.urlList.length} changed page(s) only after the live key matches`);
   console.log("Website search indexing smoke passed (5 checks).");

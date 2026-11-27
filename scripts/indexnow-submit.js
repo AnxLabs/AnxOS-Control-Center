@@ -20,7 +20,8 @@ const fs = require("fs");
 const path = require("path");
 
 const SITE = path.resolve(__dirname, "..", "website");
-const HOST = "anxoscontrolcenter.org";
+// The canonical host (website/_worker.js CANONICAL_HOST, see website-hosts.js).
+const HOST = require("./website-hosts").canonicalHost();
 const ORIGIN = `https://${HOST}`;
 const ENDPOINT = "https://api.indexnow.org/indexnow";
 

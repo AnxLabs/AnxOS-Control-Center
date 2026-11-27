@@ -2,7 +2,9 @@ const fs = require("fs");
 const path = require("path");
 
 const rootDir = path.resolve(__dirname, "..");
-const { OFFICIAL_SITE_ORIGIN } = require(path.join(rootDir, "src", "shared", "officialSite"));
+// The website's canonical origin (website/_worker.js CANONICAL_HOST). The app's
+// own OFFICIAL_SITE_ORIGIN (sign-in, update fallback) stays legacy until Build 217.
+const OFFICIAL_SITE_ORIGIN = require("./website-hosts").canonicalOrigin();
 const { getReleaseInfo } = require(path.join(rootDir, "src", "shared", "releaseConfig"));
 const websiteConfigPath = path.join(rootDir, "website", "config.js");
 const releaseNotesPath = path.join(rootDir, "website", "release-notes.json");

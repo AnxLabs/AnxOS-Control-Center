@@ -2051,7 +2051,7 @@ and `win-unpacked` (314 desktop modules, 0 unresolved, Agent copies present).
 
 - All jobs green; artifact checks 10/10 (Setup SHA-256 `f8d0422a10d2af4e84e4b9c7128ab7c5e4594e04e9b516492415529a7658cf0d`, engine `c5837f19…`, both Authenticode Valid); Linux `.deb` and AppImage verified and opened from a clean profile.
 - Windows Sandbox (Smart App Control enforced): every scenario passed, including the new reopen-from-tray check (window hidden to the tray and shown again, not recreated; no exception).
-- **Finding:** on a slow Sandbox disk the silent engine showed NSIS `verifying installer: N%` windows (its own CRC pass, during install and repair). Fixed locally: Setup passes `/NCRC` (it has already verified the engine`s SHA-256 and signature); `anxhost-setup-contract-smoke` S13. A new signed RC is needed.
+- **Finding:** on a slow Sandbox disk the silent engine showed NSIS `verifying installer: N%` windows (its own CRC pass, during install and repair). Fixed locally: Setup passes `/NCRC` (it has already verified the engine's SHA-256 and signature); `anxhost-setup-contract-smoke` S13. A new signed RC is needed.
 
 ### RC3 (current): run 45957957098, commit `1212d772`
 
@@ -2067,7 +2067,64 @@ and `win-unpacked` (314 desktop modules, 0 unresolved, Agent copies present).
 - All jobs green (publish skipped); in-build package check passed on the `.deb`, AppImage and `win-unpacked`. Artifact checks 10/10; Setup and engine Authenticode Valid, CN=Anjo ROSIMO, issuer Microsoft ID Verified CS EOC CA 03 (the Trusted Signing certificate rotated since RC2; the publisher pin matches).
 - Linux: the CI `.deb` and AppImage verified and opened from a clean profile (AnxNet status served, no uncaught exception).
 - Windows Sandbox, Smart App Control enforced, all scenarios pass. Setup's log shows the engine command line `engine /S /NCRC /ANXSTATUS=… /D=…`; no NSIS or console window in normal setup; reopen from the tray shows the same window; data, Helper and Agent identity kept in every upgrade; 0 Code Integrity blocks.
-- Waiting for the owner's `confirmed` before installing over the real app (currently RC1 `32864023`; same build number, so Setup offers Repair).
+### RC3 acceptance on the owner's PC (2026-11-27, after "confirmed")
+
+- Before: RC1 `32864023` installed, the app running, Helper task Running.
+  Both `AnxHub` folders backed up to
+  `C:\Users\anjor\AnxHub-backup-before-216-RC3` (15,599 files) and hashed
+  (15,414 data files).
+- Repair with the signed Setup (`2b06e7e3…`) from Downloads: close-apps step,
+  two UAC prompts approved by the owner (Helper stop, Helper setup), measured
+  copy, Done screen "AnxHost Control Center is repaired … Build 216 · Helper
+  running". Driven by UI Automation; no NSIS or console window appeared.
+- After: uninstall entry "AnxHost Control Center", `AnxHostBuild=216`, Helper
+  task Running, Agent `2.0-build216` with the same device, installation and
+  generation ids, 625 installed binaries validly signed, Start menu shortcut
+  "AnxHost Control Center". Data: 0 files missing; 2 changed
+  (`alerts.json`, `telemetry.json`) and 1 added
+  (`alerts.json.15172.….tmp`), all written by the RC1 app before Setup closed
+  it. Setup's close step (electron-builder's `taskkill`, then `taskkill /F`)
+  ended that app 2 s after its window hid to the tray, mid-write; the temp
+  file is complete and `alerts.json` is intact. Same close sequence as every
+  earlier build.
+- App (Computer Use): window title "AnxHost Control Center"; Settings shows
+  display name "AnxHost Control Center" (migrated; `preferences.json` differs
+  from the backup only in `settings.app.displayName`); the tray tooltip and
+  menu use `PRODUCT_NAME` (read from the installed `app.asar`, not hovered).
+  Closing the window hid it to the tray with no exception; opening the app
+  again showed the same window (same main and renderer processes, Settings
+  page and scroll position kept; log: `second-instance`, `window-show-event`,
+  no `create-window`). Agent Control shows Anxlab connected on 2.0 Build 214.
+- Status: no blocking findings.
+
+### Website and domain readiness (2026-11-27, publication on hold)
+
+Owner decision: the website moves to `anxhost.anxlabs.net`;
+`anxoscontrolcenter.org` stays for installed apps. RC3 is unchanged.
+
+- **Cloudflare (approved, done):**
+  - The Pages project's `production_deployments_enabled` is now `false`, so `dev` pushes build previews only.
+  - `anxhost.anxlabs.net` was added as a custom domain. It is pending until the owner adds `CNAME anxhost → anxos-control-center.pages.dev` (the wrangler login has no DNS scope).
+- **Download API 502 (fixed, not deployed):**
+  - Cause: GitHub's API answered the worker's uncached, unauthenticated requests with 403. This was confirmed with a diagnostic preview deployment, since deleted.
+  - Fix: the worker caches the list (5 min fresh, 7 days stale), falls back to this deployment's `config.js` stable assets, and sends `ANXOS_GITHUB_TOKEN` if one is ever configured.
+  - Test: `website-download-resilience-smoke` D1-D7; D1 fails on the old worker.
+- **Host routing and switch (prepared, not deployed):**
+  - `website/_worker.js` routes by host; `scripts/website-hosts.js` is the switch.
+  - Tests: `website-host-routing-smoke` H1-H6 and `website-host-switch-smoke` S1-S5.
+  - The sitemap, IndexNow, release sync, release docs and smokes now read the canonical host from the worker.
+- **Redesign (local, not deployed):**
+  - New design layer `website/anxhost-site.css`, which maps the site tokens to the AnxHost palette.
+  - One shared header and footer on 24 pages (`scripts/website-chrome.js`).
+  - A new home page with the Option A lockup.
+  - Copy and alt text updated to the Build 216 page names.
+  - The inner pages keep their structure under the new design.
+- **Screenshots:**
+  - Nine new product images from the installed, signed RC3, captured by `scripts/capture-anxhost-rc3-screenshots.js`.
+  - Data: a disposable fixture Agent with demo servers and demo machine facts (`test-helpers/demo-machine-preload.js`).
+  - Every screen's text was checked for this PC's names and private IPs, and the check stopped two early attempts.
+  - The real Agent logged no refused request during the runs.
+- **Validation:** `npm run qa:website` passed 18 of 18 checks. `frozen-identifiers` and `anxhost-brand-allowlist` pass.
 
 ### 216-G remaining risks
 
@@ -2075,5 +2132,21 @@ and `win-unpacked` (314 desktop modules, 0 unresolved, Agent copies present).
   at A1 and A10); the fixes above cover the instance engine smoke only.
 - `fleet:aggregation:smoke` can still fail if the machine is too loaded for
   a loopback reply within the desktop's 8 s health probe (seen once).
-- Not done: push to `dev`, the signed RC (`windows-release.yml`), its
-  verification, the `confirmed` install and Computer Use acceptance.
+- Setup closes a running app with `taskkill` then `taskkill /F`; the app
+  hides to the tray on a close request, so an upgrade always force-ends it
+  and can interrupt a write (an orphan `*.tmp` was left in RC3 acceptance;
+  no data lost). Unchanged from earlier builds.
+- The 216-B website is live, although "Nothing was deployed" above was
+  true when written. Cloudflare's Git integration builds every push to `dev`
+  (a "Cloudflare Pages" check on `1212d772`, deployed 2026-11-27 07:22 UTC),
+  and on 2026-11-27 the live `/` and `/release-notes` matched `f8d9dfc2` and
+  later exactly. The guarded `cloudflare-pages-deploy.yml` last ran on
+  2026-11-20, so the guard does not control what goes live.
+- `/api/download/latest/*` intermittently returns Cloudflare's own
+  `error code: 502` (text/plain, not the function's JSON), for every
+  platform, about half of requests on 2026-11-27. The site's buttons link to
+  GitHub directly, so they are not affected. Cause unknown: it needs the Pages
+  function logs.
+- Not done: publication (on hold by the owner, 2026-11-27), production Agent
+  updates, domain migration, the 216-B website items (see the readiness
+  review in the session report).

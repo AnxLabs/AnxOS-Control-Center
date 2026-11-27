@@ -25,6 +25,7 @@
     <meta name="twitter:title" content="AnxHost Control Center | Getting Started">
     <meta name="twitter:description" content="Three moves to a running server: install AnxHost Control Center, add a computer, and create and run your first server.">
     <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/anxhost-site.css">
     <script src="/config.js" defer></script>
     <script src="/account-config.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
@@ -47,7 +48,26 @@
       <symbol id="icon-globe" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
     </svg>
 
-    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxHost home"><span class="brand-mark"><img data-logo src="/assets/anxhost-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxHost</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features/">Features</a><a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="/" aria-label="AnxHost Control Center home">
+          <span class="brand-mark"><img data-logo src="/assets/anxhost-logo.png" alt="" width="28" height="28"></span>
+          <span class="brand-copy"><strong data-config="brandName">AnxHost</strong><span>Control Center</span></span>
+        </a>
+        <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
+        <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
+          <a href="/features/">Features</a>
+          <a href="/getting-started/">Getting Started</a>
+          <a href="/setup/">Setup</a>
+          <a href="/release-notes">Release Notes</a>
+          <a href="/faq/">FAQ</a>
+          <a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a>
+          <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
+          <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
+          <a class="site-nav__cta" href="/download">Download</a>
+        </nav>
+      </div>
+    </header>
 
     <main id="main">
       <section id="overview" class="section">
@@ -78,7 +98,7 @@
             <div class="flow-step">
               <span class="flow-step__index">3</span>
               <strong>Create and run a server</strong>
-              <p>Pick a Marketplace template, create it, and start it on the node.</p>
+              <p>Pick a template in Add Server, create it, and start it on the computer.</p>
             </div>
           </div>
         </div>
@@ -138,7 +158,7 @@
               <span>7</span>
               <div class="step__body">
                 <strong>Install required dependencies</strong>
-                <p>Approve the installs Prepare Node recommends, then open the Marketplace.</p>
+                <p>Approve the installs Prepare Node recommends, then open Add Server.</p>
               </div>
             </article>
             <article data-reveal data-reveal-delay="6">
@@ -162,7 +182,7 @@
             <div data-reveal data-reveal-delay="2">
               <picture>
                 <source type="image/webp" srcset="/assets/product/control-center-add-computer.webp">
-                <img class="shot" src="/assets/product/control-center-add-computer.png" width="1500" height="950" loading="lazy" alt="The Add Computer dialog with two paths: install AnxHost on a desktop computer, or install the Agent package on a headless Debian or Ubuntu server, then paste a full one-time pairing code.">
+                <img class="shot" src="/assets/product/control-center-add-computer.png" width="1500" height="950" loading="lazy" alt="Add Computer: desktop and headless paths, Pair with Code (recommended) and Advanced Manual Setup.">
               </picture>
             </div>
           </div>
@@ -284,6 +304,29 @@
       </section>
     </main>
 
-    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxHost Control Center</strong><span>© 2026 AnxHost Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy/">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features/">Features</a><a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/security-privacy/">Security</a><a href="/faq/">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
+    <footer class="site-footer">
+      <div class="site-footer__brand">
+        <img src="/assets/anxhost-icon.svg" alt="" width="32" height="32">
+        <strong>AnxHost Control Center</strong>
+        <span>Local-first control for the servers and PCs you own. Formerly AnxOS Control Center.</span>
+        <span class="site-footer__note">Private Alpha · <a href="/security-privacy/">Security &amp; Privacy</a></span>
+      </div>
+      <nav class="site-footer__nav" aria-label="Footer">
+        <div class="site-footer__col">
+          <h2>Product</h2>
+          <a href="/">Home</a><a href="/features/">Features</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/system-requirements/">System Requirements</a>
+        </div>
+        <div class="site-footer__col">
+          <h2>Guides</h2>
+          <a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/windows-installation/">Windows Installation</a><a href="/faq/">FAQ</a>
+        </div>
+        <div class="site-footer__col">
+          <h2>Project</h2>
+          <a href="/security-privacy/">Security</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="https://anxlabs.net">AnxLabs</a>
+          <a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
+        </div>
+      </nav>
+      <div class="site-footer__legal"><span>© 2026 AnxHost Control Center · AnxLabs</span><span>anxhost.anxlabs.net · anxoscontrolcenter.org</span></div>
+    </footer>
   </body>
 </html>

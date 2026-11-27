@@ -11,6 +11,8 @@
 //   website/assets/apple-touch-icon.png Option B touch icon, 180 px
 //   website/assets/icon-192.png, -512   Option B touch icons
 //   website/assets/social-preview.png   1200x630, Option A lockup (large branding)
+//   website/assets/anxhost-lockup.svg   Option A lockup, dark (website hero)
+//   website/assets/anxhost-icon.svg     small icon (site header, 28 px)
 //
 // Usage: node scripts/anxhost-website-assets.js
 
@@ -47,6 +49,8 @@ function ico(pngs) {
 
 async function main() {
   copy("svg/anxhost-icon-small.svg", "favicon.svg");
+  copy("svg/anxhost-icon-small.svg", "anxhost-icon.svg");
+  copy("svg/anxhost-lockup-option-a-dark.svg", "anxhost-lockup.svg");
   copy("png/favicon/anxhost-favicon-16.png", "favicon-16.png");
   copy("png/favicon/anxhost-favicon-32.png", "favicon-32.png");
   copy("png/touch/anxhost-touch-180.png", "apple-touch-icon.png");

@@ -46,7 +46,7 @@ const site = read("site.js");
 const styles = read("styles.css");
 const rootPackage = fs.readFileSync(path.join(root, "package.json"), "utf8");
 
-const officialOrigin = "https://anxoscontrolcenter.org";
+const officialOrigin = require("./website-hosts").canonicalOrigin();
 const oldPagesOrigin = "https://anxos-control-center.pages.dev";
 const removedBrandingFiles = [
   "anxos-logo.jpg",
