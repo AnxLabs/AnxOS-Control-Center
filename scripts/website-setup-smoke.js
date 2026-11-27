@@ -13,7 +13,7 @@ const styles = read("styles.css");
 const site = read("site.js");
 
 assert(setup.includes('data-standalone-route="setup"'), "/setup must serve the setup guide.");
-assert(setup.includes('rel="canonical" href="https://anxoscontrolcenter.org/setup/"'), "/setup must have canonical metadata.");
+assert(setup.includes(`rel="canonical" href="${require("./website-hosts").canonicalOrigin()}/setup/"`), "/setup must have canonical metadata.");
 assert(setup.includes('href="/download"') && setup.includes("Download AnxHost"), "Setup download CTAs must point to /download.");
 assert(!/data-download=(?:"|')[^"']+/.test(setup), "Setup CTAs must remain on the existing download route instead of starting a release download.");
 for (const html of [setup, index, download, gettingStarted, read("features/index.html"), read("system-requirements/index.html"), read("windows-installation/index.html"), read("security-privacy/index.html"), read("faq/index.html")]) {

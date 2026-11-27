@@ -3,7 +3,7 @@
 
 // Host routing in website/_worker.js for the AnxHost domain move
 // (anxhost.anxlabs.net new, anxoscontrolcenter.org legacy). No network.
-//   H1 as committed, the legacy host stays canonical: its pages are served and
+//   H1 with the legacy host canonical (the mode before the switch): its pages are served and
 //      indexable, the new host serves the same pages marked noindex
 //   H2 the new host never serves sign-in: account, activate, sign-in and the
 //      other auth pages go to the same path and query on the legacy host
@@ -30,8 +30,9 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "anx-hosts-"));
 
 async function loadWorker(canonical) {
   let source = fs.readFileSync(workerPath, "utf8");
-  assert.match(source, /^const CANONICAL_HOST = LEGACY_HOST;$/m, "the committed worker keeps the legacy host canonical");
-  if (canonical === "new") source = source.replace(/^const CANONICAL_HOST = LEGACY_HOST;$/m, "const CANONICAL_HOST = NEW_HOST;");
+  // Both modes are built from the worker source, whichever one is committed.
+  assert.match(source, /^const CANONICAL_HOST = (?:LEGACY_HOST|NEW_HOST);$/m, "the worker declares CANONICAL_HOST");
+  source = source.replace(/^const CANONICAL_HOST = (?:LEGACY_HOST|NEW_HOST);$/m, `const CANONICAL_HOST = ${canonical === "new" ? "NEW_HOST" : "LEGACY_HOST"};`);
   const target = path.join(scratch, `worker-${canonical}.mjs`);
   fs.writeFileSync(target, source);
   return (await import(pathToFileURL(target).href)).default;
@@ -73,7 +74,7 @@ async function main() {
     await assertServed(await hit(legacyMode, `https://${LEGACY}${page}`), `legacy ${page}`, { indexable: true });
     await assertServed(await hit(legacyMode, `https://${NEW}${page}`), `new ${page}`, { indexable: false });
   }
-  console.log("PASS H1 legacy stays canonical as committed; the new host serves pages marked noindex");
+  console.log("PASS H1 with legacy canonical, legacy pages are indexable and the new host serves pages marked noindex");
 
   // H2
   for (const worker of [legacyMode, newMode]) {

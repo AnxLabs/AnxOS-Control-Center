@@ -3,7 +3,7 @@
 
 // The prepared canonical-host switch (scripts/website-hosts.js) on a copy of
 // the website. No network, and the real website/ is never written.
-//   S1 as committed, every surface agrees on the legacy canonical host
+//   S1 in the legacy mode, every surface agrees on the legacy canonical host
 //   S2 switching to anxhost.anxlabs.net moves canonicals, og:url, JSON-LD,
 //      robots, sitemap, config siteUrl and the worker's CANONICAL_HOST
 //   S3 sign-in stays on anxoscontrolcenter.org after the switch: account-config,
@@ -36,13 +36,17 @@ function snapshot(dir) {
 function main() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "anx-host-switch-"));
   fs.cpSync(path.join(repo, "website"), path.join(root, "website"), { recursive: true, filter: (source) => !/[\\/]assets[\\/]product[\\/]/.test(source) });
+  // Start from the legacy mode whichever one is committed, so the smoke runs
+  // the same both before and after an approved switch.
+  const committed = hosts.canonicalHost(root);
+  if (committed !== hosts.LEGACY_HOST) hosts.switchHosts("legacy", { root });
   const before = snapshot(path.join(root, "website"));
   const read = (relative) => fs.readFileSync(path.join(root, "website", relative), "utf8");
 
   // S1
   assert.strictEqual(hosts.canonicalHost(root), hosts.LEGACY_HOST);
   assert.deepStrictEqual(hosts.checkHosts({ root }).problems, []);
-  console.log("PASS S1 as committed, every surface agrees on anxoscontrolcenter.org");
+  console.log(`PASS S1 every surface agrees on anxoscontrolcenter.org (committed mode: ${committed})`);
 
   // S2
   const result = hosts.switchHosts("new", { root });

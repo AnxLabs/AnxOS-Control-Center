@@ -40,7 +40,7 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 - **The 216-B website rename went live through Cloudflare's Git deploy,**
   which deployed every push to `dev` to production (the live site matched
   `f8d9dfc2` and later, still describing Build 215). Since 2026-11-27 the
-  Pages project builds `dev` pushes as previews only; production changes only
+  Pages project no longer deploys `dev` pushes; production changes only
   through the guarded `cloudflare-pages-deploy.yml`. The redesigned website,
   the download fix and the host routing are not deployed. The website is
   moving to `anxhost.anxlabs.net`, with `anxoscontrolcenter.org` kept for

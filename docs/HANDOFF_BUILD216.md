@@ -2103,8 +2103,8 @@ Owner decision: the website moves to `anxhost.anxlabs.net`;
 `anxoscontrolcenter.org` stays for installed apps. RC3 is unchanged.
 
 - **Cloudflare (approved, done):**
-  - The Pages project's `production_deployments_enabled` is now `false`, so `dev` pushes build previews only.
-  - `anxhost.anxlabs.net` was added as a custom domain. It is pending until the owner adds `CNAME anxhost → anxos-control-center.pages.dev` (the wrangler login has no DNS scope).
+  - The Pages project's `production_deployments_enabled` is now `false`, so `dev` pushes no longer deploy production.
+  - `anxhost.anxlabs.net` was added as a custom domain. The owner added its DNS record; it resolved at 10:04 UTC and went active at 10:06 with a Google Trust Services certificate (`website-launch-check --stage=dns` 3 of 3).
 - **Download API 502 (fixed, not deployed):**
   - Cause: GitHub's API answered the worker's uncached, unauthenticated requests with 403. This was confirmed with a diagnostic preview deployment, since deleted.
   - Fix: the worker caches the list (5 min fresh, 7 days stale), falls back to this deployment's `config.js` stable assets, and sends `ANXOS_GITHUB_TOKEN` if one is ever configured.
@@ -2125,6 +2125,8 @@ Owner decision: the website moves to `anxhost.anxlabs.net`;
   - Every screen's text was checked for this PC's names and private IPs, and the check stopped two early attempts.
   - The real Agent logged no refused request during the runs.
 - **Validation:** `npm run qa:website` passed 18 of 18 checks. `frozen-identifiers` and `anxhost-brand-allowlist` pass.
+- **Switch rehearsal:** in a throwaway worktree, `--switch=new` plus `release-docs` and `website-sitemap` gave a tree that passes all 18 website checks. Five smokes that assumed the legacy host were made host-aware (sign-in canonicals stay legacy; the app's package homepage follows the app's own site).
+- **Launch order:** `docs/anxhost/WEBSITE_LAUNCH_RUNBOOK.md`. Live checks: `scripts/website-launch-check.js`.
 
 ### 216-G remaining risks
 

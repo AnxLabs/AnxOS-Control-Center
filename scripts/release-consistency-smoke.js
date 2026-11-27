@@ -241,7 +241,7 @@ try {
   run("H canonical URLs are final, not redirects", () => {
     const { pagesRedirectReason, checkCanonicalUrls } = require("./release-consistency-check");
     const website = path.join(repoRoot, "website");
-    const origin = "https://anxoscontrolcenter.org";
+    const origin = require("./website-hosts").canonicalOrigin(repoRoot);
     assert.strictEqual(pagesRedirectReason(website, `${origin}/download`, origin), null, "/download is served by download.html");
     assert.strictEqual(pagesRedirectReason(website, `${origin}/faq/`, origin), null, "/faq/ is served by faq/index.html");
     assert(pagesRedirectReason(website, `${origin}/release-notes.html`, origin), ".html URLs redirect on Pages");

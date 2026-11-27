@@ -15,7 +15,7 @@ each need a separate approval.
 
 | Step | State |
 | --- | --- |
-| Production deploys only from the guarded workflow | **Done.** The Pages project `anxos-control-center` had Git integration deploying every push to `dev` to production. `production_deployments_enabled` is now `false` (preview builds of every branch continue). Production changes only through `cloudflare-pages-deploy.yml` (`wrangler pages deploy`, which checks the site against the stable release). |
+| Production deploys only from the guarded workflow | **Done.** The Pages project `anxos-control-center` had Git integration deploying every push to `dev` to production. `production_deployments_enabled` is now `false`, so pushes to `dev` no longer deploy production (other branches still get preview builds). Production changes only through `cloudflare-pages-deploy.yml` (`wrangler pages deploy`, which checks the site against the stable release). |
 | `anxhost.anxlabs.net` on the Pages project | **Added as a custom domain, waiting for its DNS record.** Cloudflare reports `CNAME record not set`; the wrangler login used here has no DNS write scope. Owner step: in the `anxlabs.net` zone add `CNAME anxhost → anxos-control-center.pages.dev`, proxied. Cloudflare then validates the hostname and issues its certificate. |
 | Download API 502s | **Fixed in the worker, not deployed.** Cause: GitHub's API answered the worker's uncached, unauthenticated lookups with 403 (shared-IP rate limit). See `website/_worker.js` and `scripts/website-download-resilience-smoke.js`. |
 | Host-aware routing | **Prepared, not deployed.** `website/_worker.js` ships with the legacy host canonical: the new host serves the same pages marked `noindex` and sends sign-in pages to the legacy host. |

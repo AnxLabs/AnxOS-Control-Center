@@ -47,6 +47,8 @@ const styles = read("styles.css");
 const rootPackage = fs.readFileSync(path.join(root, "package.json"), "utf8");
 
 const officialOrigin = require("./website-hosts").canonicalOrigin();
+// Sign-in pages stay on the legacy host (website-hosts.js AUTH_PATH) after a canonical switch.
+const signInOrigin = `https://${require("./website-hosts").LEGACY_HOST}`;
 const oldPagesOrigin = "https://anxos-control-center.pages.dev";
 const removedBrandingFiles = [
   "anxos-logo.jpg",
@@ -153,8 +155,11 @@ function assertWebsiteBrandingAssetsResolve() {
   assert(html.includes('rel="icon"') && html.includes('apple-touch-icon') && html.includes('site.webmanifest'), `${file} must declare favicon and app icons.`);
 });
 
-assert(config.includes(`siteUrl: "${officialOrigin}"`) && accountConfig.includes(`siteUrl: "${officialOrigin}"`), "Website configs must use the official domain.");
-assert(rootPackage.includes(`"homepage": "${officialOrigin}"`), "Package metadata should expose the official homepage.");
+// config.js follows the canonical website host; sign-in (account-config.js)
+// stays on the legacy host until Build 217 and an approved account-service change.
+assert(config.includes(`siteUrl: "${officialOrigin}"`) && accountConfig.includes(`siteUrl: "https://${require("./website-hosts").LEGACY_HOST}"`), "Website configs must use the canonical domain, and sign-in the legacy one.");
+// The app's packaging metadata follows the app's own site (frozen until Build 217), not the website switch.
+assert(rootPackage.includes(`"homepage": "${require("../src/shared/officialSite").OFFICIAL_SITE_ORIGIN}"`), "Package metadata should expose the app's official homepage.");
 assert(index.includes(`<meta property="og:url" content="${officialOrigin}/">`) && index.includes("assets/social-preview.png"), "Homepage must expose canonical Open Graph metadata.");
 assert(releaseNotes.includes(`<meta property="og:url" content="${officialOrigin}/release-notes">`), "Release notes must expose page-specific Open Graph URL.");
 assert(site.includes("release-note-card--latest") && site.includes("Current release") && !site.includes("empty.innerHTML"), "Release notes must highlight the current release and render empty states with text nodes.");
@@ -241,14 +246,14 @@ assert(faqRoute.includes(`<link rel="canonical" href="${officialOrigin}/faq/">`)
   assert(read(file).includes('href="/security-privacy/"'), `${file} public footer should link to the public security and privacy page.`);
   assert(read(file).includes('href="/faq/"'), `${file} public footer should link to the public FAQ page.`);
 });
-assert(signin.includes('data-auth-form="signin"') && signin.includes(`<link rel="canonical" href="${officialOrigin}/signin/">`), "Sign-in must be a clean direct route.");
-assert(signup.includes('data-auth-form="signup"') && signup.includes(`<link rel="canonical" href="${officialOrigin}/signup/">`), "Sign-up must be a clean direct route.");
-assert(account.includes('data-account-route="account"') && account.includes(`<link rel="canonical" href="${officialOrigin}/account">`), "Account must be a clean direct route.");
-assert(profile.includes('data-account-route="profile"') && profile.includes(`<link rel="canonical" href="${officialOrigin}/profile">`), "Profile must be a clean direct route.");
-assert(activateRoute.includes('data-standalone-route="activate"') && activateRoute.includes(`<link rel="canonical" href="${officialOrigin}/activate">`), "Activation must be a clean direct route.");
+assert(signin.includes('data-auth-form="signin"') && signin.includes(`<link rel="canonical" href="${signInOrigin}/signin/">`), "Sign-in must be a clean direct route.");
+assert(signup.includes('data-auth-form="signup"') && signup.includes(`<link rel="canonical" href="${signInOrigin}/signup/">`), "Sign-up must be a clean direct route.");
+assert(account.includes('data-account-route="account"') && account.includes(`<link rel="canonical" href="${signInOrigin}/account">`), "Account must be a clean direct route.");
+assert(profile.includes('data-account-route="profile"') && profile.includes(`<link rel="canonical" href="${signInOrigin}/profile">`), "Profile must be a clean direct route.");
+assert(activateRoute.includes('data-standalone-route="activate"') && activateRoute.includes(`<link rel="canonical" href="${signInOrigin}/activate">`), "Activation must be a clean direct route.");
 assert(read("device.html").includes('window.location.replace(`/activate${query}`)') && read("device-login.html").includes('window.location.replace(`/activate${query}`)'), "Legacy device activation pages must preserve query strings when redirecting to /activate.");
-assert(forgotRoute.includes('data-auth-form="forgot"') && forgotRoute.includes(`<link rel="canonical" href="${officialOrigin}/forgot-password">`), "Forgot-password must be a clean direct route.");
-assert(resetRoute.includes('data-auth-form="reset"') && resetRoute.includes(`<link rel="canonical" href="${officialOrigin}/reset-password">`), "Reset-password must be a clean direct route.");
+assert(forgotRoute.includes('data-auth-form="forgot"') && forgotRoute.includes(`<link rel="canonical" href="${signInOrigin}/forgot-password">`), "Forgot-password must be a clean direct route.");
+assert(resetRoute.includes('data-auth-form="reset"') && resetRoute.includes(`<link rel="canonical" href="${signInOrigin}/reset-password">`), "Reset-password must be a clean direct route.");
 assert(!index.includes("window.location.hash") && !index.includes("location.hash"), "Homepage must not include inline hash routing.");
 assert(!index.includes('href="#signin"') && !index.includes('href="#signup"') && !index.includes('href="#account"') && !index.includes('href="#profile"'), "Homepage must not link to hash-based account routes.");
 assert(site.includes("function redirectLegacyHashRoutes") && site.includes('"account-security": "/account?section=security"') && site.includes('download: "/download"') && site.includes('changelog: "/release-notes"'), "Shared legacy normalizer must convert old hash URLs on every website page.");

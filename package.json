@@ -47,6 +47,7 @@
     "website:host-switch:smoke": "node scripts/website-host-switch-smoke.js",
     "website:hosts": "node scripts/website-hosts.js",
     "website:chrome": "node scripts/website-chrome.js",
+    "website:launch-check": "node scripts/website-launch-check.js",
     "curseforge:large-file-write:smoke": "node scripts/curseforge-large-file-write-timeout-smoke.js",
     "qa:fast": "node scripts/release-validation.js --tier=fast",
     "qa:feature": "node scripts/release-validation.js --tier=feature",
