@@ -1056,7 +1056,7 @@
                     <small>Not available in this build.</small>
                   </article>
                   <article class="public-access-provider is-disabled" aria-disabled="true">
-                    <strong>AnxOS Relay</strong>
+                    <strong>AnxHost Relay</strong>
                     <span class="status-pill status-pill--planned">Coming Soon</span>
                     <small>Not available in this build.</small>
                   </article>
@@ -1145,7 +1145,7 @@
                   <span class="status-pill status-pill--planned" data-public-access-firewall-pill>Not checked</span>
                 </div>
                 <h3>Firewall Rules</h3>
-                <p data-public-access-firewall-summary>AnxOS-managed inbound rules only. Rules created outside AnxOS are never shown as removable.</p>
+                <p data-public-access-firewall-summary>AnxHost-managed inbound rules only. Rules created outside AnxHost are never shown as removable.</p>
                 <div class="playit-tunnel-list" data-public-access-firewall-list></div>
                 <div class="settings-actions public-access-actions" data-public-access-firewall-actions aria-label="Firewall rule actions"></div>
               </article>
@@ -1620,8 +1620,8 @@
                         <label class="ssh-field" data-marketplace-field-wrap="serverType"><span>Server type</span><select data-marketplace-field="serverType"><option>Vanilla</option><option>Paper</option><option>Purpur</option><option>Fabric</option><option>Quilt</option><option>Forge</option><option>NeoForge</option></select></label>
                         <label class="ssh-field" data-marketplace-field-wrap="storageLocation"><span>Storage folder</span><input type="text" data-marketplace-field="storageLocation" placeholder="data"></label>
                         <label class="ssh-field" data-marketplace-field-wrap="hostFolder" hidden><span data-marketplace-host-folder-label>Media folder</span><input type="text" data-marketplace-field="hostFolder" placeholder="D:\Media or /srv/media" autocomplete="off" spellcheck="false"><small data-marketplace-host-folder-help>The full path of the folder on the chosen computer. It is shared read-only.</small></label>
-                        <div class="ssh-field" data-marketplace-field-wrap="applicationFile" hidden><span data-marketplace-application-label>Application (.jar)</span><button class="inline-action" type="button" data-marketplace-choose-application>Choose .jar…</button><small data-marketplace-application-name>No file chosen.</small><small>Deploy only applications you trust. It runs with the AnxOS Agent's permissions on that computer (never as administrator) and can read and change that account's files.</small></div>
-                        <label class="ssh-field" data-marketplace-field-wrap="botToken" hidden><span>Bot token</span><input type="password" data-marketplace-field="botToken" autocomplete="off" spellcheck="false"><small>Stored encrypted by the chosen computer's AnxOS Agent and given to the bot as DISCORD_TOKEN when it starts. AnxOS never shows it again or saves it in the bot's files or settings.</small></label>
+                        <div class="ssh-field" data-marketplace-field-wrap="applicationFile" hidden><span data-marketplace-application-label>Application (.jar)</span><button class="inline-action" type="button" data-marketplace-choose-application>Choose .jar…</button><small data-marketplace-application-name>No file chosen.</small><small>Deploy only applications you trust. It runs with the AnxHost Agent's permissions on that computer (never as administrator) and can read and change that account's files.</small></div>
+                        <label class="ssh-field" data-marketplace-field-wrap="botToken" hidden><span>Bot token</span><input type="password" data-marketplace-field="botToken" autocomplete="off" spellcheck="false"><small>Stored encrypted by the chosen computer's AnxHost Agent and given to the bot as DISCORD_TOKEN when it starts. AnxHost never shows it again or saves it in the bot's files or settings.</small></label>
                         <label class="ssh-field" data-marketplace-field-wrap="programArguments" hidden><span>Program arguments (optional)</span><input type="text" data-marketplace-field="programArguments" placeholder="--port 8080" autocomplete="off" spellcheck="false"></label>
                         <label class="ssh-field"><span>Memory (RAM)</span><input type="text" data-marketplace-field="memory" placeholder="4G"></label>
                         <label class="ssh-field"><span>Port</span><input type="number" min="1" max="65535" data-marketplace-field="port" placeholder="25565"></label>
@@ -2516,7 +2516,7 @@
                     <option>No profiles configured</option>
                   </select>
                 </label>
-                <label class="console-toggle ssh-agent-toggle" data-ssh-agent-field hidden title="Sign in with this key through the OpenSSH Authentication Agent (load it once with ssh-add). No passphrase prompts, and background Agent control can use the key. AnxOS never stores the passphrase.">
+                <label class="console-toggle ssh-agent-toggle" data-ssh-agent-field hidden title="Sign in with this key through the OpenSSH Authentication Agent (load it once with ssh-add). No passphrase prompts, and background Agent control can use the key. AnxHost never stores the passphrase.">
                   <input type="checkbox" data-ssh-profile-agent>
                   <span>Use SSH agent for this key</span>
                 </label>
@@ -3329,7 +3329,7 @@
             <div>
               <p class="eyebrow">Storage Hygiene</p>
               <h1>Maintenance</h1>
-              <p class="lede">Measure and clear AnxOS-owned desktop caches, logs, diagnostics state, and temporary files without touching server data, backups, saved credentials, or Marketplace instances.</p>
+              <p class="lede">Measure and clear AnxHost-owned desktop caches, logs, diagnostics state, and temporary files without touching server data, backups, saved credentials, or Marketplace instances.</p>
             </div>
           </header>
           <nav class="page-tabs" aria-label="Activity sections">
@@ -3410,7 +3410,7 @@
                 </div>
                 <div class="settings-category-group">
                   <p class="settings-category-group__label">Account</p>
-                  <button type="button" data-security-section-target="account">AnxOS Account</button>
+                  <button type="button" data-security-section-target="account">AnxHost Account</button>
                   <button type="button" data-security-section-target="protection">Account Protection</button>
                   <button type="button" data-security-section-target="sessions">Sessions</button>
                 </div>
@@ -3446,7 +3446,7 @@
             <section class="settings-section settings-section--account" data-security-section="account">
               <div class="settings-section__header">
                 <div>
-                  <h2>AnxOS Account</h2>
+                  <h2>AnxHost Account</h2>
                   <p>Sign in on the website to sync devices later. Local control still works without an account.</p>
                 </div>
                 <div class="settings-section__badges">
@@ -3503,7 +3503,7 @@
                 </label>
               </div>
               <div class="settings-actions">
-                <button class="inline-action inline-action--primary" type="button" data-account-action="start">Sign in with AnxOS</button>
+                <button class="inline-action inline-action--primary" type="button" data-account-action="start">Sign in with AnxHost</button>
                 <button class="inline-action" type="button" data-account-action="open">Open Account Page</button>
                 <button class="inline-action" type="button" data-account-action="copy-code">Copy Code</button>
                 <button class="inline-action" type="button" data-account-action="cancel">Cancel</button>
@@ -3720,7 +3720,7 @@
               <div class="settings-section__header">
                 <div>
                   <h2>Phone Access</h2>
-                  <p>Use the AnxOS web app on your phone, on your home network. Each phone gets the role you choose and can be removed at any time.</p>
+                  <p>Use the AnxHost web app on your phone, on your home network. Each phone gets the role you choose and can be removed at any time.</p>
                 </div>
               </div>
               <div data-phone-access-panel aria-live="polite"></div>
@@ -4121,7 +4121,7 @@
                 <div class="settings-actions">
                   <button class="inline-action inline-action--primary" type="button" data-owner-action="send-api">Send Request</button>
                   <button class="inline-action" type="button" data-owner-action="clear-api-history">Clear History</button>
-                  <span class="settings-inline-status" data-owner-api-message>Restricted to approved local AnxOS services and configured agents.</span>
+                  <span class="settings-inline-status" data-owner-api-message>Restricted to approved local AnxHost services and configured agents.</span>
                 </div>
                 <div class="owner-log-output" data-owner-api-history></div>
               </div>
@@ -4328,7 +4328,7 @@
               <div class="settings-section__header">
                 <div>
                   <h2>Install Local Agent</h2>
-                  <p>AnxOS Local Agent lets AnxOS manage servers, files, backups, dependencies, and services on this computer.</p>
+                  <p>AnxHost Local Agent lets AnxHost manage servers, files, backups, dependencies, and services on this computer.</p>
                 </div>
                 <span class="status-pill status-pill--planned" data-agent-local-installer-status>Ready</span>
               </div>
@@ -4342,7 +4342,7 @@
               <div class="download-list" data-agent-local-installer-steps>
                 <div class="docker-empty-state"><strong>No install has run yet</strong><span>AnxHost will prepare the managed runtime, create secure credentials, start the Agent, and reconnect automatically.</span></div>
               </div>
-              <p class="settings-note">Uninstalling AnxOS Control Center removes the application only. Servers, settings, and backups are kept.</p>
+              <p class="settings-note">Uninstalling AnxHost Control Center removes the application only. Servers, settings, and backups are kept.</p>
             </section>
             <section class="settings-section settings-section--wide agent-pairing-setup" data-agent-pairing-setup data-agent-control-section="pairing">
               <div class="settings-section__header">
@@ -4352,7 +4352,7 @@
                 </div>
                 <span class="status-pill status-pill--planned" data-agent-pairing-status>No code yet</span>
               </div>
-              <p class="settings-note">Open AnxOS Control Center on your main computer → Add Computer, then paste the full pairing code. Codes expire and can be used only once.</p>
+              <p class="settings-note">Open AnxHost Control Center on your main computer → Add Computer, then paste the full pairing code. Codes expire and can be used only once.</p>
               <div class="agent-pairing-network-option">
                 <label class="settings-check settings-check--toggle"><input type="checkbox" data-agent-pairing-network-opt-in><span>Another computer will connect to this one</span></label>
                 <p class="settings-note" data-agent-pairing-network-note>Off (default): the pairing code works only on this computer. Turn this on to show a code for another computer on the same network or tailnet, and let this computer's Agent accept its connection.</p>
@@ -4784,7 +4784,7 @@
             <div>
               <p class="eyebrow">Preferences</p>
               <h1>Settings</h1>
-              <p class="lede">Local preferences for <span data-app-name>AnxOS Control Center</span> behavior, startup, and service addresses.</p>
+              <p class="lede">Local preferences for <span data-app-name>AnxHost Control Center</span> behavior, startup, and service addresses.</p>
             </div>
           </header>
 
@@ -5218,7 +5218,7 @@
               <dl class="settings-about-grid">
                 <div>
                   <dt>Application</dt>
-                  <dd data-app-name>AnxOS Control Center</dd>
+                  <dd data-app-name>AnxHost Control Center</dd>
                 </div>
                 <div>
                   <dt>Publisher</dt>
@@ -5294,19 +5294,19 @@
         </header>
         <div class="node-modal-body">
           <div class="node-modal-intro">
-            <p class="settings-note node-form-guidance">One machine or server = one independently running AnxOS Agent. Choose how you are adding this computer below, then enter its pairing code in Pair with Code.</p>
+            <p class="settings-note node-form-guidance">One machine or server = one independently running AnxHost Agent. Choose how you are adding this computer below, then enter its pairing code in Pair with Code.</p>
             <div class="settings-message" data-node-form-status hidden></div>
           </div>
           <div class="node-path-grid" data-node-path-chooser>
             <details class="node-path-card" open>
               <summary>
                 <span class="node-path-card__heading"><strong>Desktop computer</strong><small>Windows or desktop Linux</small></span>
-                <span class="node-path-card__hint">Install AnxOS there</span>
+                <span class="node-path-card__hint">Install AnxHost there</span>
               </summary>
               <div class="node-path-card__body">
-                <p>Installing AnxOS Control Center on that computer includes the Agent, so AnxOS can prepare it for you.</p>
+                <p>Installing AnxHost Control Center on that computer includes the Agent, so AnxHost can prepare it for you.</p>
                 <ol class="node-path-steps">
-                  <li>Install AnxOS Control Center on that computer.</li>
+                  <li>Install AnxHost Control Center on that computer.</li>
                   <li>Open <strong>Agent Control</strong> in that installation.</li>
                   <li>Select <strong>Connect this computer</strong>.</li>
                   <li>Turn on <strong>Another computer will connect to this one</strong> so this Control Center can reach it.</li>
@@ -5314,7 +5314,7 @@
                   <li>Paste the full code in <strong>Pair with Code</strong> below.</li>
                 </ol>
                 <div class="settings-actions">
-                  <button class="inline-action" type="button" data-node-action="open-release-page">Download AnxOS Control Center</button>
+                  <button class="inline-action" type="button" data-node-action="open-release-page">Download AnxHost Control Center</button>
                 </div>
               </div>
             </details>
@@ -5324,7 +5324,7 @@
                 <span class="node-path-card__hint">Install the Agent package</span>
               </summary>
               <div class="node-path-card__body">
-                <p>The AnxOS Agent package ships with this release and is listed on the releases page once this build is published. If it is not listed yet, use <strong>Advanced Manual Setup</strong> below or check again after publication.</p>
+                <p>The AnxHost Agent package ships with this release and is listed on the releases page once this build is published. If it is not listed yet, use <strong>Advanced Manual Setup</strong> below or check again after publication.</p>
                 <ol class="node-path-steps">
                   <li>Download <code>AnxOS-Agent-&lt;version&gt;.deb</code> from the releases page, then install it on the server: <code>sudo apt install ./AnxOS-Agent-*.deb</code></li>
                   <li>Run the guided setup: <code>sudo anxos-agent</code></li>
@@ -5378,7 +5378,7 @@
                 <ol>
                   <li>Copy the generated token.</li>
                   <li>Configure the same token on the Agent machine.</li>
-                  <li>Restart the AnxOS Agent.</li>
+                  <li>Restart the AnxHost Agent.</li>
                   <li>Return to Control Center.</li>
                   <li>Select Test Connection.</li>
                   <li>Save the node after validation succeeds.</li>

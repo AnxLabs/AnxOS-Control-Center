@@ -224,7 +224,7 @@
       selected: Boolean(computer.selected),
       connection: computer.connection,
       connectionLabel: CONNECTION_LABELS[computer.connection] || "Unknown",
-      os: computer.isAnxOS ? `AnxOS${os ? ` (${os})` : ""}` : os || "",
+      os: computer.isAnxOS ? `AnxHost${os ? ` (${os})` : ""}` : os || "",
       freshness: connected ? freshness.state : "unavailable",
       freshnessLabel: !connected
         ? "Not connected"
@@ -279,7 +279,7 @@
           id: `computer-offline:${computer.id}`,
           severity: "critical",
           title: `${computer.name} is not connected`,
-          detail: computer.connectionDetail || "AnxHost cannot reach the AnxOS Agent on this computer. Servers on it cannot be managed until it reconnects.",
+          detail: computer.connectionDetail || "AnxHost cannot reach the AnxHost Agent on this computer. Servers on it cannot be managed until it reconnects.",
           action: { label: "Open computer", kind: "computer", target: computer.id },
         });
         return;
@@ -347,7 +347,7 @@
         id: `duplicate:${duplicate.deviceId}`,
         severity: "warning",
         title: `The same computer is added ${duplicate.ids.length} times`,
-        detail: `${duplicate.names.join(" and ")} are the same AnxOS Agent added under different addresses. Keep one and remove the others under Computers.`,
+        detail: `${duplicate.names.join(" and ")} are the same AnxHost Agent added under different addresses. Keep one and remove the others under Computers.`,
         action: { label: "Open Computers", kind: "computer", target: duplicate.ids[0] },
       });
     });

@@ -366,7 +366,7 @@ async function runFleetBatchAction(payload = {}) {
   if (action === "stop" && payload.confirm !== true) {
     throw new FleetBatchError(
       "FLEET_BATCH_CONFIRMATION_REQUIRED",
-      "Confirm before disconnecting nodes: this stops AnxOS management of each target.",
+      "Confirm before disconnecting nodes: this stops AnxHost management of each target.",
       409,
     );
   }

@@ -20,7 +20,7 @@ const MAX_SERVICES = 200;
 // Ports AnxNet never shares, matching the Sharing guard (shareHealth.js).
 // 47131 is the AnxOS Agent's default port and 47800 the phone gateway's;
 // computers may add their own (the Agent's configured port) as blockedPorts.
-const MANAGEMENT_PORTS = new Map([[22, "SSH"], [2375, "Docker"], [2376, "Docker (TLS)"], [3389, "Remote Desktop"], [5900, "VNC"], [5985, "WinRM"], [5986, "WinRM (TLS)"], [6566, "the AnxOS Agent"], [47131, "the AnxOS Agent"], [47800, "AnxOS Phone Access"]]);
+const MANAGEMENT_PORTS = new Map([[22, "SSH"], [2375, "Docker"], [2376, "Docker (TLS)"], [3389, "Remote Desktop"], [5900, "VNC"], [5985, "WinRM"], [5986, "WinRM (TLS)"], [6566, "the AnxHost Agent"], [47131, "the AnxHost Agent"], [47800, "AnxHost Phone Access"]]);
 
 function error(code, message, statusCode = 400) {
   return Object.assign(new Error(message || code), { code, statusCode });

@@ -16,13 +16,13 @@ const ERROR_ENVELOPE = {
 
 function registerWebhookAlertsIpc() {
   ipcMain.handle("webhookAlerts:get", async (_, payload = {}) => wrapExpectedAgentRead("webhookAlerts:get", () => {
-    requireLocalOwnerAuthenticated("webhookAlerts:get", "Unlock AnxOS to view server alert settings.");
+    requireLocalOwnerAuthenticated("webhookAlerts:get", "Unlock AnxHost to view server alert settings.");
     requirePermission("nodes:read", payload.nodeId);
     const context = requireNodeContext(payload, "server alerts");
     return getWebhookAlerts({ ...payload, nodeId: context.nodeId });
   }, ERROR_ENVELOPE));
   ipcMain.handle("webhookAlerts:save", async (_, payload = {}) => wrapExpectedAgentRead("webhookAlerts:save", () => {
-    requireLocalOwnerAuthenticated("webhookAlerts:save", "Unlock AnxOS to change server alerts.");
+    requireLocalOwnerAuthenticated("webhookAlerts:save", "Unlock AnxHost to change server alerts.");
     requirePermission("settings:write", payload.nodeId);
     const context = requireNodeContext(payload, "server alerts");
     const update = {};
@@ -33,7 +33,7 @@ function registerWebhookAlertsIpc() {
     return saveWebhookAlerts(update, { nodeId: context.nodeId });
   }, ERROR_ENVELOPE));
   ipcMain.handle("webhookAlerts:test", async (_, payload = {}) => wrapExpectedAgentRead("webhookAlerts:test", () => {
-    requireLocalOwnerAuthenticated("webhookAlerts:test", "Unlock AnxOS to send a test alert.");
+    requireLocalOwnerAuthenticated("webhookAlerts:test", "Unlock AnxHost to send a test alert.");
     requirePermission("settings:write", payload.nodeId);
     const context = requireNodeContext(payload, "server alerts");
     audit({ action: "webhookAlerts.test", target: context.nodeId });

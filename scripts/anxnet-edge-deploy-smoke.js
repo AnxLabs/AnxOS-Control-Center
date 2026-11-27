@@ -150,7 +150,7 @@ async function main() {
   // E1
   assert.strictEqual(validateEdgeConfig(base).ok, true, "a relay-only edge is valid");
   const errorsOf = (config) => validateEdgeConfig(config).errors.join(" | ");
-  assert.match(errorsOf({ ...base, gateway: { enabled: true, publicHost: "203.0.113.10", portRange: [47100, 47200] } }), /47131 \(the AnxOS Agent\)/);
+  assert.match(errorsOf({ ...base, gateway: { enabled: true, publicHost: "203.0.113.10", portRange: [47100, 47200] } }), /47131 \(the AnxHost Agent\)/);
   assert.match(errorsOf({ ...base, gateway: { enabled: true, publicHost: "203.0.113.10", portRange: [20, 30] } }), /1024 or above/);
   assert.match(errorsOf({ ...base, gateway: { enabled: true, publicHost: "203.0.113.10", portRange: [47690, 47710] } }), /edge's own port 47700/);
   assert.match(errorsOf({ ...base, gateway: { enabled: true, portRange: [30000, 30099] } }), /publicHost is required/);

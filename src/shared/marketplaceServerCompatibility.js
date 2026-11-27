@@ -116,7 +116,7 @@ function classifyServerCompatibility(input = {}, options = {}) {
   const staleEvidence = record ? [{ source: "manual-certification", outcome: "stale", detail: `Last validated ${record.lastValidatedAt || "on an unknown date"}; current provider evidence was re-evaluated.` }] : [];
   const explicitServerPackId = input.serverPackFileId || input.raw?.serverPackFileId || input.raw?.server_pack_file_id || null;
   if (explicitServerPackId) {
-    return result(CLASSIFICATIONS.OFFICIAL_SERVER_PACK, "CurseForge links an official server-pack file. AnxOS will use that file instead of the client archive.", [...staleEvidence, { source: "provider-server-pack-metadata", outcome: "accepted", detail: `Server pack file ${explicitServerPackId}.` }], certification, { evaluatedAt, serverPackFileId: explicitServerPackId });
+    return result(CLASSIFICATIONS.OFFICIAL_SERVER_PACK, "CurseForge links an official server-pack file. AnxHost will use that file instead of the client archive.", [...staleEvidence, { source: "provider-server-pack-metadata", outcome: "accepted", detail: `Server pack file ${explicitServerPackId}.` }], certification, { evaluatedAt, serverPackFileId: explicitServerPackId });
   }
 
   const serverFlag = input.serverCompatible ?? input.serverPackCompatible ?? input.serverCapable ?? input.raw?.serverCompatible ?? input.raw?.server_pack_compatible ?? input.raw?.server_capable;
@@ -131,7 +131,7 @@ function classifyServerCompatibility(input = {}, options = {}) {
   const loaders = [...new Set([...(input.loaders || []), ...(input.minecraftVersions || []), input.loader].filter(Boolean).map((value) => String(value).toLowerCase()))];
   const declaredLoader = loaders.find((loader) => /fabric|forge|neoforge|neo-forge|quilt|rift|liteloader|cauldron/.test(loader));
   if (declaredLoader && !SUPPORTED_RUNTIMES.has(declaredLoader)) {
-    return result(CLASSIFICATIONS.UNSUPPORTED, `The ${declaredLoader} loader/runtime is not supported by the AnxOS dedicated-server installer.`, [...staleEvidence, { source: "runtime-compatibility", outcome: "unsupported", detail: declaredLoader }], certification, { evaluatedAt });
+    return result(CLASSIFICATIONS.UNSUPPORTED, `The ${declaredLoader} loader/runtime is not supported by the AnxHost dedicated-server installer.`, [...staleEvidence, { source: "runtime-compatibility", outcome: "unsupported", detail: declaredLoader }], certification, { evaluatedAt });
   }
   if (declaredLoader && SUPPORTED_RUNTIMES.has(declaredLoader)) {
     return result(CLASSIFICATIONS.LIKELY_COMPATIBLE, `The declared ${declaredLoader} runtime is supported, but the provider does not publish enough evidence to verify this pack for a dedicated server.`, [...staleEvidence, { source: "runtime-compatibility", outcome: "supported", detail: declaredLoader }], certification, { evaluatedAt, confidence: "medium" });

@@ -79,7 +79,7 @@ const TRUST_MESSAGES = Object.freeze({
   [TRUST_VERDICTS.VERIFIED]: Object.freeze({
     severity: "ok",
     title: "Verified publisher",
-    body: "AnxOS recognizes this publisher and the integrity hash matches the declared value.",
+    body: "AnxHost recognizes this publisher and the integrity hash matches the declared value.",
     action: "You can install this package.",
     requiresReview: false,
     allowInstall: true,
@@ -87,7 +87,7 @@ const TRUST_MESSAGES = Object.freeze({
   [TRUST_VERDICTS.UNVERIFIED_PUBLISHER]: Object.freeze({
     severity: "warning",
     title: "Unverified publisher",
-    body: "AnxOS cannot verify who published this content. It is not first-party, and no trusted attestation covers it.",
+    body: "AnxHost cannot verify who published this content. It is not first-party, and no trusted attestation covers it.",
     action: "Review the publisher and source before installing. Install only if you trust them.",
     requiresReview: true,
     allowInstall: true,
@@ -95,7 +95,7 @@ const TRUST_MESSAGES = Object.freeze({
   [TRUST_VERDICTS.UNSIGNED_EXECUTABLE]: Object.freeze({
     severity: "warning",
     title: "Unsigned executable content",
-    body: "This package runs executable content on your host but carries no integrity hash that AnxOS can verify.",
+    body: "This package runs executable content on your host but carries no integrity hash that AnxHost can verify.",
     action: "No integrity evidence is available for this package. Review the publisher before installing.",
     requiresReview: true,
     allowInstall: true,
@@ -111,7 +111,7 @@ const TRUST_MESSAGES = Object.freeze({
   [TRUST_VERDICTS.UNKNOWN]: Object.freeze({
     severity: "warning",
     title: "Publisher trust unknown",
-    body: "AnxOS found no publisher identity and no integrity facts to evaluate for this entry.",
+    body: "AnxHost found no publisher identity and no integrity facts to evaluate for this entry.",
     action: "Treat this entry as unverified and review it before installing.",
     requiresReview: true,
     allowInstall: true,

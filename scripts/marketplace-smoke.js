@@ -1176,10 +1176,10 @@ function assertSingleDeviceModeExperience() {
 
   assert(indexSource.includes("data-local-setup-gate"), "First launch should include a Single-Device Mode setup surface.");
   assert(indexSource.includes("Use this device"), "First launch should offer Use this device.");
-  assert(indexSource.includes("Sign in with AnxOS") && indexSource.includes("data-account-action=\"start\""), "First launch and security surfaces should offer AnxOS website sign-in.");
+  assert(indexSource.includes("Sign in with AnxHost") && indexSource.includes("data-account-action=\"start\""), "First launch and security surfaces should offer AnxOS website sign-in.");
   assert(indexSource.includes("Local Owner Login"), "First launch should offer Local Owner Login as the offline fallback path.");
   assert(indexSource.includes('data-account-action="copy-code"') && indexSource.includes('data-account-action="open"'), "Device sign-in surfaces should expose Copy Code and Open Browser actions.");
-  assert(indexSource.includes("data-account-status") && indexSource.includes("data-account-device-code"), "Settings should show AnxOS account status and device-code state.");
+  assert(indexSource.includes("data-account-status") && indexSource.includes("data-account-device-code"), "Settings should show AnxHost account status and device-code state.");
   assert(indexSource.includes("Remote Control is only needed if you want to manage another computer or server."), "Security copy should make Remote Control optional.");
   assert(indexSource.includes("This is not an online Anx account."), "Security sign-in copy should clarify that AnxOS uses a local device account.");
   assert(appSource.includes("LOCAL_SETUP_STORAGE_KEY"), "Renderer should remember that local setup was completed.");
@@ -1190,7 +1190,7 @@ function assertSingleDeviceModeExperience() {
   assert(appSource.includes("securityLastSubmitAt") && appSource.includes("now - securityLastSubmitAt < 1000"), "Renderer should debounce rapid duplicate security submits.");
   assert(nodeSource.includes("getApplicationHostNode") && nodeSource.includes('kind: "agent"') && nodeSource.includes("agentIdentity"), "Nodes should separate the application host from identity-backed Agent nodes.");
   assert(securitySource.includes("localMode") && securitySource.includes('username: "This Device"'), "Security should report local mode and allow local no-account actions.");
-  assert(securitySource.includes("getCurrentAccountSession") && securitySource.includes("accountAuthenticated"), "Security should accept a verified AnxOS account session as an authenticated app user.");
+  assert(securitySource.includes("getCurrentAccountSession") && securitySource.includes("accountAuthenticated"), "Security should accept a verified AnxHost account session as an authenticated app user.");
   assert(securitySource.includes("requireOwner") && securitySource.includes("Owner access is required."), "Security service should expose trusted owner-only authorization.");
   assert(securitySource.includes("ANXOS_DEV_OWNER_PASSWORD") && securitySource.includes("isTrustedDevelopmentMode"), "Development owner password should be gated by trusted main-process development mode.");
   assert(securitySource.includes("DEVELOPMENT_FALLBACK_OWNER_PASSWORD") && securitySource.includes("Choose a stronger owner password."), "Production owner setup should reject the default development password.");

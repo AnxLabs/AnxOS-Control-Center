@@ -83,7 +83,7 @@ async function main() {
     console.log("PASS U1 Settings > Updates has a Verification row");
 
     // U2
-    const refusal = "The downloaded installer is signed by \"Mallory\", not by the AnxOS Control Center publisher, so it was not opened.";
+    const refusal = "The downloaded installer is signed by \"Mallory\", not by the AnxHost Control Center publisher, so it was not opened.";
     await sendUpdateStatus(app, {
       type: "install-error",
       code: "UPDATE_INSTALLER_WRONG_PUBLISHER",

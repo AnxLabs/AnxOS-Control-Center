@@ -251,7 +251,7 @@ async function updateWithHelper(ctx) {
     target, previous,
   } = ctx;
   record.privilege = "update-helper";
-  mark("stage", "complete", `The node's update helper downloads ${target.fileName} from the ${target.tag} release and checks it against SHA256SUMS; AnxOS compares the digest it reports with its own copy${previous.ok ? `. Rollback package: ${previous.fileName}` : ""}.`);
+  mark("stage", "complete", `The node's update helper downloads ${target.fileName} from the ${target.tag} release and checks it against SHA256SUMS; AnxHost compares the digest it reports with its own copy${previous.ok ? `. Rollback package: ${previous.fileName}` : ""}.`);
 
   mark("swap", "running");
   const helperRun = await runOn(buildHelperCommand("install", targetBuild), DEFAULT_HELPER_TIMEOUT_MS);
@@ -322,8 +322,8 @@ async function updateWithHelper(ctx) {
   const recordPath = finishRecord();
   const reason = record.digestMismatch ? "the installed package did not match this Desktop's SHA256SUMS" : `the ${targetBuild} Agent did not come up`;
   throw fail("REMOTE_AGENT_UPDATE_VERIFY_FAILED", rolledBack
-    ? `Because ${reason}, AnxOS reinstalled ${installedBuild} through the update helper and it is healthy again.`
-    : `Because ${reason}, AnxOS tried to reinstall ${installedBuild}, but the rollback could not be confirmed. Inspect the node (journalctl -u anxos-agent).`, { verification, install, rollback: record.rollback, recordPath, method: "package" });
+    ? `Because ${reason}, AnxHost reinstalled ${installedBuild} through the update helper and it is healthy again.`
+    : `Because ${reason}, AnxHost tried to reinstall ${installedBuild}, but the rollback could not be confirmed. Inspect the node (journalctl -u anxos-agent).`, { verification, install, rollback: record.rollback, recordPath, method: "package" });
 }
 
 async function updatePackageManagedAgent(ctx) {
@@ -341,7 +341,7 @@ async function updatePackageManagedAgent(ctx) {
   record.installedBuild = installedBuild || null;
 
   if (!targetBuild) {
-    throw fail("AGENT_BUILD_UNVERIFIED", "This Desktop cannot read the build of its own bundled Agent, so it cannot choose which package to install. Reinstall AnxOS Control Center, then retry.");
+    throw fail("AGENT_BUILD_UNVERIFIED", "This Desktop cannot read the build of its own bundled Agent, so it cannot choose which package to install. Reinstall AnxHost Control Center, then retry.");
   }
 
   // ---- preflight
@@ -361,7 +361,7 @@ async function updatePackageManagedAgent(ctx) {
   const children = Number.parseInt(preflight.CHILDREN, 10);
   if (!Number.isInteger(children)) {
     mark("workloads", "failed", "Could not tell whether servers are running under the Agent.");
-    throw fail("REMOTE_AGENT_UPDATE_WORKLOADS_UNKNOWN", "AnxOS could not tell whether servers are running under this Agent, so it did not restart it. Stop the node's servers, then retry.");
+    throw fail("REMOTE_AGENT_UPDATE_WORKLOADS_UNKNOWN", "AnxHost could not tell whether servers are running under this Agent, so it did not restart it. Stop the node's servers, then retry.");
   }
   if (children > 0) {
     mark("workloads", "failed", `${children} server process(es) run under the Agent.`);
@@ -376,7 +376,7 @@ async function updatePackageManagedAgent(ctx) {
   const previous = installedBuild ? await resolveReleasePackage(installedBuild, { fetchText, releaseBaseUrl: ctx.releaseBaseUrl }) : { ok: false, message: "The node's installed Agent does not report its build." };
   if (!previous.ok && ctx.allowWithoutRollback !== true) {
     mark("stage", "failed", "No verified package to roll back to.");
-    throw fail("REMOTE_AGENT_UPDATE_ROLLBACK_UNAVAILABLE", `AnxOS can only update this Agent when it can roll back, and it has no verified package for the installed build (${installedBuild || "unknown"}): ${previous.message} Update this node once by hand; later updates can then roll back.`);
+    throw fail("REMOTE_AGENT_UPDATE_ROLLBACK_UNAVAILABLE", `AnxHost can only update this Agent when it can roll back, and it has no verified package for the installed build (${installedBuild || "unknown"}): ${previous.message} Update this node once by hand; later updates can then roll back.`);
   }
   if (preflight.HELPER === "ok") {
     return updateWithHelper({ ...ctx, runOn, target, previous, preflight });
@@ -410,7 +410,7 @@ async function updatePackageManagedAgent(ctx) {
   if (simulation.SIMULATE_EXIT !== "0" || others.length) {
     mark("stage", "failed", others.length ? `Installing would also change: ${others.join(", ")}.` : "apt cannot install the package on this node.");
     throw fail("AGENT_PACKAGE_OTHER_CHANGES", others.length
-      ? `Installing ${target.fileName} would also change other packages (${others.join(", ")}), so AnxOS did not install it: an Agent update must not upgrade or remove what other services use. Update those packages yourself, then retry.`
+      ? `Installing ${target.fileName} would also change other packages (${others.join(", ")}), so AnxHost did not install it: an Agent update must not upgrade or remove what other services use. Update those packages yourself, then retry.`
       : `apt reports that ${target.fileName} cannot be installed on this node (${simulation.LOG || "no details"}). Nothing was installed.`, { otherPackages: others });
   }
   mark("stage", "complete", `${target.fileName} downloaded and verified against the ${target.tag} SHA256SUMS${previousPath ? `; rollback package ${previous.fileName} verified too` : ""}. apt would change anxos-agent only.`);
@@ -422,9 +422,9 @@ async function updatePackageManagedAgent(ctx) {
     record.status = "awaiting-manual-install";
     finishRecord();
     const helperHint = preflight.HELPER === "not-permitted"
-      ? ` To let AnxOS install Agent updates without a password next time, add ${profile.username || "the SSH user"} to the anxos-update group on the node (sudo usermod -aG anxos-update ${profile.username || "<user>"}); it allows only the Agent's update helper.`
-      : " After this update, the Agent includes an update helper that the anxos-update group may run without a password; AnxOS can then install later Agent updates itself.";
-    throw fail("REMOTE_AGENT_UPDATE_SUDO_REQUIRED", `The package is downloaded and verified, but ${profile.username || "the SSH user"} needs a password for sudo on this node, so AnxOS did not install it. On the node, run: ${manualCommand}.${helperHint}`, { manualCommand, packagePath: newPath, helper: preflight.HELPER || "missing" });
+      ? ` To let AnxHost install Agent updates without a password next time, add ${profile.username || "the SSH user"} to the anxos-update group on the node (sudo usermod -aG anxos-update ${profile.username || "<user>"}); it allows only the Agent's update helper.`
+      : " After this update, the Agent includes an update helper that the anxos-update group may run without a password; AnxHost can then install later Agent updates itself.";
+    throw fail("REMOTE_AGENT_UPDATE_SUDO_REQUIRED", `The package is downloaded and verified, but ${profile.username || "the SSH user"} needs a password for sudo on this node, so AnxHost did not install it. On the node, run: ${manualCommand}.${helperHint}`, { manualCommand, packagePath: newPath, helper: preflight.HELPER || "missing" });
   }
 
   // ---- backup + install
@@ -492,7 +492,7 @@ async function updatePackageManagedAgent(ctx) {
   mark("rollback", rolledBack ? "complete" : "failed", rolledBack ? `Reinstalled ${installedBuild}; the Agent answers again.` : "The rollback could not be confirmed healthy.");
   const recordPath = finishRecord();
   throw fail("REMOTE_AGENT_UPDATE_VERIFY_FAILED", rolledBack
-    ? `The ${targetBuild} Agent did not come up, so AnxOS reinstalled ${installedBuild} and it is healthy again.`
+    ? `The ${targetBuild} Agent did not come up, so AnxHost reinstalled ${installedBuild} and it is healthy again.`
     : `The ${targetBuild} Agent did not come up and the rollback to ${installedBuild} could not be confirmed. Inspect the node (journalctl -u anxos-agent).`, { verification, install, rollback: record.rollback, recordPath });
 }
 

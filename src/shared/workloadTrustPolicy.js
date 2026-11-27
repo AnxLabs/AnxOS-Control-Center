@@ -466,7 +466,7 @@ function resolveExecutionIdentity(definition = {}, kind = "container-create") {
     return {
       nonAdmin: false,
       source: "process-runtime-fixed-identity",
-      detail: "process workloads run as the AnxOS Agent identity; AnxOS cannot drop privileges for them",
+      detail: "process workloads run as the AnxHost Agent identity; AnxHost cannot drop privileges for them",
       requestedNonAdminIdentity,
     };
   }
@@ -503,7 +503,7 @@ function resolveExecutionIdentity(definition = {}, kind = "container-create") {
   return {
     nonAdmin: false,
     source: "container-user-unverifiable-name",
-    detail: `user override '${raw}' names a user whose uid AnxOS cannot verify as non-root without inspecting the image`,
+    detail: `user override '${raw}' names a user whose uid AnxHost cannot verify as non-root without inspecting the image`,
     requestedNonAdminIdentity: true,
   };
 }
@@ -588,7 +588,7 @@ function evaluateWorkloadTrust(definition = {}, options = {}) {
     refusals.push(refusal(TRUST_REFUSAL_CODES.CAPABILITY_UNSUPPORTED, {
       capability: unsupported[0],
       statusCode: 403,
-      message: `Workload trust: '${describeCapabilityList(unsupported.map((key) => CAPABILITY_LABELS[key]))}' cannot be honored by a ${kind} workload. AnxOS refuses the request instead of silently ignoring it.`,
+      message: `Workload trust: '${describeCapabilityList(unsupported.map((key) => CAPABILITY_LABELS[key]))}' cannot be honored by a ${kind} workload. AnxHost refuses the request instead of silently ignoring it.`,
     }));
   }
 
@@ -601,7 +601,7 @@ function evaluateWorkloadTrust(definition = {}, options = {}) {
     refusals.push(refusal(TRUST_REFUSAL_CODES.CAPABILITY_UNSUPPORTED, {
       capability: floorless[0],
       statusCode: 403,
-      message: `Workload trust: '${describeCapabilityList(floorless.map((key) => CAPABILITY_LABELS[key]))}' is not permitted at any trust level; AnxOS does not expose it.`,
+      message: `Workload trust: '${describeCapabilityList(floorless.map((key) => CAPABILITY_LABELS[key]))}' is not permitted at any trust level; AnxHost does not expose it.`,
     }));
   }
 
@@ -615,7 +615,7 @@ function evaluateWorkloadTrust(definition = {}, options = {}) {
     refusals.push(refusal(TRUST_REFUSAL_CODES.CAPABILITY_UNSUPPORTED, {
       capability: "nonAdminExecution",
       statusCode: 403,
-      message: "Workload trust: a process workload cannot run under a chosen non-admin identity (user/runAs). The AnxOS instance runtime does not drop privileges, so the declaration is refused rather than silently ignored.",
+      message: "Workload trust: a process workload cannot run under a chosen non-admin identity (user/runAs). The AnxHost instance runtime does not drop privileges, so the declaration is refused rather than silently ignored.",
     }));
   }
 
@@ -633,7 +633,7 @@ function evaluateWorkloadTrust(definition = {}, options = {}) {
         statusCode: 403,
         declaredTier,
         requiredTier: needed,
-        message: `Workload trust: declared level '${declaredTier}' does not cover '${describeCapabilityList(uncovered.map((key) => CAPABILITY_LABELS[key]))}', which requires '${needed}'. Declare the required level explicitly; AnxOS never silently downgrades a workload.`,
+        message: `Workload trust: declared level '${declaredTier}' does not cover '${describeCapabilityList(uncovered.map((key) => CAPABILITY_LABELS[key]))}', which requires '${needed}'. Declare the required level explicitly; AnxHost never silently downgrades a workload.`,
       }));
     }
   }
@@ -653,7 +653,7 @@ function evaluateWorkloadTrust(definition = {}, options = {}) {
         statusCode: 403,
         declaredTier: contractTier,
         requiredTier: requiredTierForCapabilities(capabilities),
-        message: `Workload trust: level '${contractTier}' promises non-admin execution, but the identity could not be confirmed as non-root/non-admin (${identity.detail}). AnxOS fails closed rather than promising isolation it cannot deliver.`,
+        message: `Workload trust: level '${contractTier}' promises non-admin execution, but the identity could not be confirmed as non-root/non-admin (${identity.detail}). AnxHost fails closed rather than promising isolation it cannot deliver.`,
       }));
     }
     requiredLimits = [...row.requiredResourceLimits];
@@ -713,7 +713,7 @@ function assertWorkloadTrust(definition = {}, options = {}) {
 // tooling and smokes can assert the documentation exists and pin its content
 // without scraping prose.
 const RESIDUAL_HOST_PRIVILEGES = Object.freeze({
-  summary: "Trust-level names describe what AnxOS lets a workload declare and what it refuses. They are not a kernel-enforced security boundary. AnxOS ships no seccomp/AppArmor/SELinux profile management, no user-namespace remapping, no cgroup v2 controller wiring for process workloads, no filesystem ACL enforcement, no capability-bounding-set management, and no privilege dropping for the workloads it launches.",
+  summary: "Trust-level names describe what AnxHost lets a workload declare and what it refuses. They are not a kernel-enforced security boundary. AnxHost ships no seccomp/AppArmor/SELinux profile management, no user-namespace remapping, no cgroup v2 controller wiring for process workloads, no filesystem ACL enforcement, no capability-bounding-set management, and no privilege dropping for the workloads it launches.",
   shared: Object.freeze([
     "A process workload runs as the identity that runs the Agent; if the Agent is root/Administrator, so is the workload. No process workload is ever 'sandboxed'.",
     "memoryLimit is a launch hint (a JVM -Xmx argument), not an OS-enforced memory ceiling; total RSS can exceed it.",
@@ -723,12 +723,12 @@ const RESIDUAL_HOST_PRIVILEGES = Object.freeze({
   ]),
   windows: Object.freeze([
     "Process workloads run with the host user's full token: no Job Object CPU/memory/handle limits, no AppContainer, no integrity-level change.",
-    "Containers are isolated by Docker Desktop's own backend (WSL2/Hyper-V Linux VM or Windows containers); AnxOS configures and verifies nothing about that isolation.",
+    "Containers are isolated by Docker Desktop's own backend (WSL2/Hyper-V Linux VM or Windows containers); AnxHost configures and verifies nothing about that isolation.",
     "Docker Desktop's WSL2 backend shares the host filesystem by default, so a granted host mount there reaches real Windows paths.",
   ]),
   linux: Object.freeze([
-    "Process workloads run as the Agent's service user (root if the unit is root): no namespaces, no seccomp filter, no MAC profile, no cgroup limits applied by AnxOS.",
-    "Container isolation is delegated entirely to the Docker daemon; AnxOS cannot verify or enforce its seccomp profile, AppArmor profile, userns-remap setting, rootless mode, or default capability set.",
+    "Process workloads run as the Agent's service user (root if the unit is root): no namespaces, no seccomp filter, no MAC profile, no cgroup limits applied by AnxHost.",
+    "Container isolation is delegated entirely to the Docker daemon; AnxHost cannot verify or enforce its seccomp profile, AppArmor profile, userns-remap setting, rootless mode, or default capability set.",
     "A granted privileged container or engine-socket mount is root-equivalent on the host and escapes the container trust model; 'host-privileged' means exactly that and is denied by default.",
     "Membership of the docker group is root-equivalent and is outside this policy's control.",
   ]),

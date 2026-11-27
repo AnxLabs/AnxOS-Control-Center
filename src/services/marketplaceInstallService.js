@@ -1278,7 +1278,7 @@ function createRestrictedCurseForgeFileError(error, context = {}) {
       provider: "curseforge",
       providerName: "CurseForge",
       originalCode: "CURSEFORGE_REQUIRED_FILE_RESTRICTED",
-      friendlyMessage: "This provider does not allow AnxOS to download one required file automatically.",
+      friendlyMessage: "This provider does not allow AnxHost to download one required file automatically.",
       recoveryState: "waiting-manual-download",
       fileName,
       file: fileName,
@@ -1345,7 +1345,7 @@ function createManualDownloadRequiredError(error, context = {}) {
     provider,
     providerName,
     originalCode: context.originalCode || error?.code || error?.details?.originalCode || `${provider.toUpperCase()}_REQUIRED_FILE_RESTRICTED`,
-    friendlyMessage: "This provider does not allow AnxOS to download one required file automatically.",
+    friendlyMessage: "This provider does not allow AnxHost to download one required file automatically.",
     recoveryState: "waiting-manual-download",
     fileName,
     file: fileName,
@@ -2640,7 +2640,7 @@ async function providerPackShipsRuntime(instanceId, startupTarget = {}, agentCon
 async function installModrinthDeclaredRuntime(instanceId, packDependencies, options, agentConfig, progressState = {}) {
   const runtime = resolveModrinthDeclaredRuntime(packDependencies);
   if (!runtime) {
-    throw createServerPackRuntimeUnresolvedError("This Modrinth pack does not say which Minecraft version and loader it runs on, so AnxOS cannot install its server runtime.", {
+    throw createServerPackRuntimeUnresolvedError("This Modrinth pack does not say which Minecraft version and loader it runs on, so AnxHost cannot install its server runtime.", {
       instanceId,
       packDependencies: packDependencies || null,
       suggestion: "Choose another version of this pack, or a pack that declares its Minecraft version and loader.",

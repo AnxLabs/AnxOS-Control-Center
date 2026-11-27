@@ -83,7 +83,7 @@
     draft.append(head);
 
     if (!supports(instance)) {
-      draft.append(el("p", "live-players__note", "This kind of server does not offer a player list AnxOS can read."));
+      draft.append(el("p", "live-players__note", "This kind of server does not offer a player list AnxHost can read."));
     } else if (error) {
       draft.append(el("p", "live-players__note live-players__note--warning", error));
     } else if (!result) {
@@ -132,7 +132,7 @@
           if (extra) nameCell.append(el("small", "", extra));
           const pingCell = el("span", Number.isFinite(player.pingMs) && player.pingMs >= (result.ping?.highThresholdMs || 150) ? "is-high" : "", pingText(player, result));
           const connected = Number.isFinite(player.connectedSeconds) ? duration(player.connectedSeconds)
-            : Number.isFinite(player.seenForSeconds) ? `${duration(player.seenForSeconds)} (seen by AnxOS)` : "—";
+            : Number.isFinite(player.seenForSeconds) ? `${duration(player.seenForSeconds)} (seen by AnxHost)` : "—";
           [nameCell, pingCell, el("span", "", connected)].forEach((cell) => { cell.setAttribute("role", "cell"); row.append(cell); });
           table.append(row);
         });

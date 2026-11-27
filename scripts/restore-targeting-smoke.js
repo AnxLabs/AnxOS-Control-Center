@@ -189,7 +189,7 @@ async function main() {
   assert.ok(presentedSame.lines.some((line) => /safety copy/.test(line)), "the presented preview names the safety copy");
   assert.deepStrictEqual(presentedSame.warnings, []);
   assert.ok(presentRestorePreview(previewCross).lines.some((line) => /original server is not changed/.test(line)), "a real cross-instance preview says the source is untouched");
-  assert.deepStrictEqual(presentRestorePreview(previewRunning).warnings, ["The server is running. AnxOS stops it before restoring."], "a real running-target warning is presented in plain words");
+  assert.deepStrictEqual(presentRestorePreview(previewRunning).warnings, ["The server is running. AnxHost stops it before restoring."], "a real running-target warning is presented in plain words");
   assert(previewRunning.conflict.warnings.includes("RESTORE_TARGET_RUNNING"), "Preview must warn that a running target would be stopped.");
   assert.deepStrictEqual(lifecycleMethodsFor(TARGET_ID), [], "Preview must never stop the running target.");
   lifecycleStates.set(TARGET_ID, { state: "Stopped", pid: null });

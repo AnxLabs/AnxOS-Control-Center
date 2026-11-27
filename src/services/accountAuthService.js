@@ -162,7 +162,7 @@ function readAccountConfigFromDisk() {
     }
   }
   if (errors.length) {
-    const error = new Error(`AnxOS account configuration could not be loaded. ${errors.join("; ")}`);
+    const error = new Error(`AnxHost account configuration could not be loaded. ${errors.join("; ")}`);
     error.code = "ACCOUNT_CONFIG_LOAD_FAILED";
     throw error;
   }
@@ -292,12 +292,12 @@ function assertApprovedExternalUrl(rawUrl, purpose = "account") {
 
   const isLocalDevelopmentHost = isDevelopmentAccountHostAllowed(parsed.hostname);
   if (parsed.protocol !== "https:" && !(isLocalDevelopmentHost && parsed.protocol === "http:")) {
-    const error = new Error("AnxOS account sign-in requires HTTPS outside local development.");
+    const error = new Error("AnxHost account sign-in requires HTTPS outside local development.");
     error.code = "ACCOUNT_HTTPS_REQUIRED";
     throw error;
   }
   if (isLocalAccountHost(parsed.hostname) && !isLocalDevelopmentHost) {
-    const error = new Error("Packaged AnxOS builds cannot use local account or device-login URLs.");
+    const error = new Error("Packaged AnxHost builds cannot use local account or device-login URLs.");
     error.code = "ACCOUNT_LOCALHOST_NOT_ALLOWED";
     throw error;
   }
@@ -700,7 +700,7 @@ async function loginWithPassword(payload = {}) {
   const email = String(payload.email || "").trim();
   const password = String(payload.password || "");
   if (!email || !password) {
-    const error = new Error("Enter your AnxOS account email and password.");
+    const error = new Error("Enter your AnxHost account email and password.");
     error.code = "ACCOUNT_CREDENTIALS_REQUIRED";
     throw error;
   }
@@ -718,7 +718,7 @@ async function loginWithPassword(payload = {}) {
   });
   writeSession(session);
   audit({ action: "account.login", outcome: "ok", target: "supabase-password" });
-  return { ...getStatus(), state: "authenticated", message: "Signed in with AnxOS account." };
+  return { ...getStatus(), state: "authenticated", message: "Signed in with AnxHost account." };
 }
 
 async function startDeviceLogin() {
@@ -786,8 +786,8 @@ async function startDeviceLogin() {
       ...getStatus(),
       state: "pending",
       message: pendingDeviceLogin.localOnly
-        ? "Opened the AnxOS account page. Configure ANXOS_ACCOUNT_API_URL to enable live website sign-in."
-        : "Opened the AnxOS account page. Finish sign-in in your browser.",
+        ? "Opened the AnxHost account page. Configure ANXOS_ACCOUNT_API_URL to enable live website sign-in."
+        : "Opened the AnxHost account page. Finish sign-in in your browser.",
     };
   } catch (error) {
     pendingDeviceLogin = null;
@@ -800,7 +800,7 @@ async function startDeviceLogin() {
 function cancelDeviceLogin() {
   pendingDeviceLogin = null;
   audit({ action: "account.deviceLogin.cancel", outcome: "ok" });
-  return { ...getStatus(), state: "cancelled", message: "AnxOS account sign-in was cancelled." };
+  return { ...getStatus(), state: "cancelled", message: "AnxHost account sign-in was cancelled." };
 }
 
 async function checkDeviceLogin() {
@@ -812,7 +812,7 @@ async function checkDeviceLogin() {
     return { ...getStatus(), state: "expired", message: "Account sign-in expired. Start again." };
   }
   if (pendingDeviceLogin.localOnly) {
-    return { ...getStatus(), state: "pending", message: "Waiting for the AnxOS account backend to be configured." };
+    return { ...getStatus(), state: "pending", message: "Waiting for the AnxHost account backend to be configured." };
   }
 
   const pollApiUrl = pendingDeviceLogin.apiUrl || getAccountApiUrl();
@@ -827,7 +827,7 @@ async function checkDeviceLogin() {
   }
   if (state === "denied" || state === "access_denied") {
     pendingDeviceLogin = null;
-    return { ...getStatus(), state: "denied", message: "AnxOS account sign-in was denied." };
+    return { ...getStatus(), state: "denied", message: "AnxHost account sign-in was denied." };
   }
   if (state === "expired") {
     pendingDeviceLogin = null;
@@ -841,7 +841,7 @@ async function checkDeviceLogin() {
   writeSession(session);
   pendingDeviceLogin = null;
   audit({ action: "account.login", outcome: "ok", target: "device-login" });
-  return { ...getStatus(), state: "authenticated", message: "Signed in with AnxOS." };
+  return { ...getStatus(), state: "authenticated", message: "Signed in with AnxHost." };
 }
 
 async function refreshSession() {
@@ -941,7 +941,7 @@ function completeLocalOwnerRecovery() {
     });
     return {
       refreshed: false,
-      warning: "AnxOS unlocked, but the saved session could not be refreshed. You may need to unlock again next time.",
+      warning: "AnxHost unlocked, but the saved session could not be refreshed. You may need to unlock again next time.",
       errorCode: error?.code || "SECURE_SESSION_WRITE_FAILED",
     };
   }

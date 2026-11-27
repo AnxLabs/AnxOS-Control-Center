@@ -316,7 +316,7 @@ function parseAgentPairingPayload(value) {
   const encoded = raw.startsWith("ANXOS-PAIR.") ? raw.slice("ANXOS-PAIR.".length) : raw;
   const payload = base64UrlDecodeJson(encoded);
   if (!payload || payload.type !== "anxos-agent-pairing" || payload.version !== 1) {
-    const error = new Error("Invalid AnxOS Agent pairing code.");
+    const error = new Error("Invalid AnxHost Agent pairing code.");
     error.code = "PAIRING_CODE_INVALID";
     throw error;
   }

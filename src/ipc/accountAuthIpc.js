@@ -18,7 +18,7 @@ const { normalizeIpcError } = require("../shared/ipcError");
 const safeConsole = require("../shared/safeConsole");
 
 function getAccountErrorMessage(error) {
-  return redactSecret(error?.message || error?.code || "AnxOS account request failed.");
+  return redactSecret(error?.message || error?.code || "AnxHost account request failed.");
 }
 
 async function invokeAccountOperation(operation, operationName = "account") {

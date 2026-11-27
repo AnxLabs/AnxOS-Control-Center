@@ -9,7 +9,7 @@ const index = fs.readFileSync(path.join(root, "index.html"), "utf8");
 const appJs = fs.readFileSync(path.join(root, "app.js"), "utf8");
 
 [
-  "One machine or server = one independently running AnxOS Agent.",
+  "One machine or server = one independently running AnxHost Agent.",
   "data-node-form-status",
   'data-node-field="description"',
   'data-node-field="tags"',

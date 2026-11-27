@@ -116,7 +116,7 @@
     const nodes = agentNodes();
     if (!nodes.length) return;
     const section = el("div", "anxnet-devices anxnet-agents");
-    section.append(el("h4", "", "Computers with the AnxOS Agent"));
+    section.append(el("h4", "", "Computers with the AnxHost Agent"));
     const list = el("ul", "anxnet-list");
     nodes.forEach((node) => {
       const state = agentStates.get(node.id);
@@ -141,7 +141,7 @@
         text.append(el("span", "anxnet-note", "Not in AnxNet"));
         if (status.network.role === "owner") {
           actions.append(button("Add to AnxNet", async () => {
-            const ok = await createSecurityConfirmation({ title: `Add ${node.displayName || node.id} to ${status.network.name}?`, message: "Its AnxOS Agent joins this network with a one-time invite and can then share its own game servers. The Agent opens one AnxNet port on that computer's network. SSH, Docker and the Agent's own port are never shared.", confirmLabel: "Add" });
+            const ok = await createSecurityConfirmation({ title: `Add ${node.displayName || node.id} to ${status.network.name}?`, message: "Its AnxHost Agent joins this network with a one-time invite and can then share its own game servers. The Agent opens one AnxNet port on that computer's network. SSH, Docker and the Agent's own port are never shared.", confirmLabel: "Add" });
             if (ok) { await run("Add computer", () => api().addComputer(node.id), "Added to AnxNet."); agentsCheckedAt = 0; refresh(); }
           }, { primary: true }));
         }
@@ -164,7 +164,7 @@
   // ---- Computers page ---------------------------------------------------------------
 
   function renderSetup(container) {
-    container.append(el("p", "anxnet-lede", "AnxNet is AnxOS's own private network. Your computers and friends' devices get names like desktop.anx-frost72.internal, and you can share game servers with them without port forwarding when a path exists. No domain to buy, and no third-party account needed."));
+    container.append(el("p", "anxnet-lede", "AnxNet is AnxHost's own private network. Your computers and friends' devices get names like desktop.anx-frost72.internal, and you can share game servers with them without port forwarding when a path exists. No domain to buy, and no third-party account needed."));
     const actions = el("div", "anxnet-actions");
     actions.append(button("Create a network", () => run("Create network", () => api().createNetwork({}), (result) => `Created ${result.network?.name || "your network"}.`), { primary: true }));
     const joinForm = el("form", "anxnet-join");
@@ -250,7 +250,7 @@
     const box = el("div", "anxnet-invite");
     box.append(el("strong", "", "Invite code (shown once)"));
     const code = el("code", "anxnet-invite__code", lastInvite.code);
-    box.append(code, el("span", "anxnet-note", `Works once, until ${lastInvite.expiresAt ? new Date(lastInvite.expiresAt).toLocaleTimeString() : "it expires"}. Paste it in AnxOS on the other device, under Computers > AnxNet > Join. You'll approve the device here.`));
+    box.append(code, el("span", "anxnet-note", `Works once, until ${lastInvite.expiresAt ? new Date(lastInvite.expiresAt).toLocaleTimeString() : "it expires"}. Paste it in AnxHost on the other device, under Computers > AnxNet > Join. You'll approve the device here.`));
     const actions = el("div", "anxnet-actions");
     actions.append(button("Copy", () => { navigator.clipboard?.writeText(lastInvite.code).then(() => showToast("Invite copied.", "success")); }), button("Hide", () => { lastInvite = null; render(); }));
     box.append(actions);
@@ -376,7 +376,7 @@
     const fact = (label, value) => { facts.append(el("dt", "", label), el("dd", "", value)); };
     fact("This device", `${status.deviceId} · ${status.fingerprint}`);
     fact("Listening", status.listening ? `TCP ${status.listening.tcpPort}, UDP ${status.listening.udpPort}` : "Not listening");
-    fact("Runs in", status.mode === "background" ? `its own background process (pid ${status.host?.pid}, ${status.host?.rssMb} MB), so it keeps working when AnxOS is closed` : "AnxOS itself (stops when AnxOS closes)");
+    fact("Runs in", status.mode === "background" ? `its own background process (pid ${status.host?.pid}, ${status.host?.rssMb} MB), so it keeps working when AnxHost is closed` : "AnxHost itself (stops when AnxHost closes)");
     fact("Private DNS", status.dns ? `${status.dns.host}:${status.dns.port} answers *.${status.dns.domain}. Windows and Linux don't use it automatically yet; use the addresses shown instead.` : "Not running");
     fact("Relay", status.network.relays?.length ? status.network.relays.map((relay) => `${relay.host}:${relay.port}`).join(", ") : "None. Devices that can't reach each other directly can't connect.");
     fact("Gateway", status.network.gateways?.length ? status.network.gateways.map((gateway) => `${gateway.host}:${gateway.port}`).join(", ") : "None. Anyone-can-join needs a gateway on a server with a public address.");
@@ -393,8 +393,8 @@
       const keepBox = el("input");
       keepBox.type = "checkbox";
       keepBox.checked = status.settings?.keepRunningWhenClosed !== false;
-      keepBox.addEventListener("change", () => run("Change setting", () => api().setKeepRunning(keepBox.checked), keepBox.checked ? "AnxNet keeps running when AnxOS is closed." : "AnxNet stops when AnxOS closes."));
-      keep.append(keepBox, el("span", "", "Keep AnxNet running when AnxOS is closed"));
+      keepBox.addEventListener("change", () => run("Change setting", () => api().setKeepRunning(keepBox.checked), keepBox.checked ? "AnxNet keeps running when AnxHost is closed." : "AnxNet stops when AnxHost closes."));
+      keep.append(keepBox, el("span", "", "Keep AnxNet running when AnxHost is closed"));
       details.append(keep);
     }
     if (status.network.role === "owner") {
@@ -402,7 +402,7 @@
       // The explanation and Copy edge config share one full-width row, so the
       // button doesn't take one of the edge fields' grid cells.
       const intro = el("div", "anxnet-edges-intro");
-      intro.append(el("p", "anxnet-note", "Run the AnxNet edge on a server you control (node src/anxnet/bin/anxnet-edge.js --config edge.json), then enter its address and the fingerprint it prints. AnxOS never sets this up on a computer by itself."));
+      intro.append(el("p", "anxnet-note", "Run the AnxNet edge on a server you control (node src/anxnet/bin/anxnet-edge.js --config edge.json), then enter its address and the fingerprint it prints. AnxHost never sets this up on a computer by itself."));
       form.append(intro);
       // edge.json for this network: its id and the owner's public key (both
       // public; no secret leaves this computer). The gateway stays off until
@@ -528,7 +528,7 @@
       const status = result?.ok === false ? null : result;
       section.replaceChildren(el("h3", "", "Share with AnxNet"));
       if (!status?.network) {
-        section.append(el("p", "anxnet-note", "AnxNet is AnxOS's own free private network: no port forwarding when a path exists, no third-party account. Create a network on the Computers page first."));
+        section.append(el("p", "anxnet-note", "AnxNet is AnxHost's own free private network: no port forwarding when a path exists, no third-party account. Create a network on the Computers page first."));
         section.append(button("Set up AnxNet", () => { document.querySelector("[data-share-server-close]")?.click(); showPage("nodes"); }));
         return;
       }
@@ -560,7 +560,7 @@
       const target = instanceTarget(instance);
       if (!service) {
         const managementPort = AnxShareHealth.getManagementPortName(target.port);
-        if (managementPort) { section.append(el("p", "anxnet-error", `Port ${target.port} is used by ${managementPort}. AnxOS never shares management ports.`)); return; }
+        if (managementPort) { section.append(el("p", "anxnet-error", `Port ${target.port} is used by ${managementPort}. AnxHost never shares management ports.`)); return; }
         if (!target.port) { section.append(el("p", "anxnet-note", "This server has no port to share yet.")); return; }
         section.append(el("p", "anxnet-note", `Invite only: devices in ${status.network.name} can join. Anyone can join: ordinary players without AnxNet, through your AnxNet gateway.`));
         const actions = el("div", "anxnet-actions");
@@ -585,7 +585,7 @@
         section.append(el("p", "", `Anyone can join is on: ${route.publicHost}:${route.publicPort}.`));
         actions.append(button("Turn off Anyone can join", () => run("Stop public access", () => api().unpublishService(service.serviceId), "The public address is closed.").then(() => reopen())));
       } else if (routeError) {
-        section.append(el("p", "anxnet-error", `Anyone can join is on, but its public address isn't open right now (${String(routeError.message || "the gateway couldn't be reached").replace(/\.$/, "")}). AnxOS keeps trying.`));
+        section.append(el("p", "anxnet-error", `Anyone can join is on, but its public address isn't open right now (${String(routeError.message || "the gateway couldn't be reached").replace(/\.$/, "")}). AnxHost keeps trying.`));
         actions.append(button("Turn off Anyone can join", () => run("Stop public access", () => api().unpublishService(service.serviceId), "Anyone can join is off.").then(() => reopen())));
       } else {
         const gateway = status.network.gateways?.[0];

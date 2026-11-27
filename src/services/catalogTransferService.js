@@ -313,7 +313,7 @@ function requireSupportedSchema(document) {
     // this build would silently drop. Importing it partially would be worse
     // than refusing it.
     throw new CatalogTransferError(
-      `Catalog document schemaVersion ${version} is newer than the supported version ${CATALOG_TRANSFER_SCHEMA_VERSION}. Update AnxOS before importing this catalog.`,
+      `Catalog document schemaVersion ${version} is newer than the supported version ${CATALOG_TRANSFER_SCHEMA_VERSION}. Update AnxHost before importing this catalog.`,
       "CATALOG_SCHEMA_UNSUPPORTED",
       { documentVersion: version, supportedVersion: CATALOG_TRANSFER_SCHEMA_VERSION },
     );

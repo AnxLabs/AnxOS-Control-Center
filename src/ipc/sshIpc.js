@@ -158,7 +158,7 @@ function registerSshIpc() {
   // to the server account. The password arrives once for this call and is
   // never stored or logged; the audit entry names the profile only.
   registerSshHandler("ssh:setUpKeyAuthentication", async (_, payload = {}) => {
-    requireLocalOwnerAuthenticated("ssh:key-setup", "Unlock AnxOS to set up key sign-in.");
+    requireLocalOwnerAuthenticated("ssh:key-setup", "Unlock AnxHost to set up key sign-in.");
     requirePermission("settings:write", payload.profileId || "ssh-profile");
     checkRateLimit("ssh-key-setup", 5, 60 * 1000);
     audit({ action: "ssh.profile.key-setup", target: payload.profileId || "ssh-profile", passphrase: Boolean(payload.passphrase) });

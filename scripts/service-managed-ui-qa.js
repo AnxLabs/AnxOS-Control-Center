@@ -361,7 +361,7 @@ async function scenarioRunning(report) {
     await openTab(page, "overview");
     await eventually("re-selected service-managed instance is locked again", () => assertLocked(page, "re-selected service-managed", LOCKED_SELECTORS));
 
-    assert.deepStrictEqual(ui.rendererErrors.filter((entry) => !/Unlock AnxOS|AGENT_UNAVAILABLE/i.test(entry)), [], "no renderer errors");
+    assert.deepStrictEqual(ui.rendererErrors.filter((entry) => !/Unlock (AnxOS|AnxHost)|AGENT_UNAVAILABLE/i.test(entry)), [], "no renderer errors");
     report.push("S1 running: render, locks (persist across tabs/refresh), UI lifecycle = single systemd calls, locks release for ordinary instances");
   } finally {
     await ui.close();
@@ -558,7 +558,7 @@ async function scenarioOperations(report) {
       const restart = await controls(page, '[data-instance-action="restart"]');
       assert.ok(restart.length > 0 && restart.every((control) => !control.disabled), JSON.stringify(restart));
     }, 20000);
-    assert.deepStrictEqual(ui.rendererErrors.filter((entry) => !/Unlock AnxOS|AGENT_UNAVAILABLE/i.test(entry)), [], "no renderer errors");
+    assert.deepStrictEqual(ui.rendererErrors.filter((entry) => !/Unlock (AnxOS|AnxHost)|AGENT_UNAVAILABLE/i.test(entry)), [], "no renderer errors");
     report.push("S4 operations: live evidence, unofficial-build + rollback visibility, per-control explanations, refusals with players/unverifiable players, one-click Safe Restart = exactly one restart with progress, result and history");
   } finally {
     await ui.close();

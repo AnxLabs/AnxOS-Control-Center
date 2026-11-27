@@ -138,7 +138,7 @@ async function copySummary() {
 }
 
 async function exportBundle(parentWindow = null) {
-  const result = await dialog.showSaveDialog(parentWindow || undefined, { title: "Export AnxOS Diagnostic Bundle", defaultPath: `anxos-diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.json`, filters: [{ name: "JSON", extensions: ["json"] }] });
+  const result = await dialog.showSaveDialog(parentWindow || undefined, { title: "Export AnxHost Diagnostic Bundle", defaultPath: `anxos-diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.json`, filters: [{ name: "JSON", extensions: ["json"] }] });
   if (result.canceled || !result.filePath) return { canceled: true };
   const release = getReleaseInfo();
   const bundle = sanitizeForDiagnostics({ generatedAt: new Date().toISOString(), application: { name: "AnxOS Control Center", version: release.versionLabel, build: release.buildLabel, channel: release.channel, releaseLabel: release.compactLabel, packageVersion, platform: os.platform(), release: os.release(), architecture: os.arch() }, agentVersion: getBundledLocalAgentVersion("unavailable"), readinessSummary: buildReadinessFromRuntime(), runtimeState, latestError: (() => { try { return JSON.parse(fs.readFileSync(path.join(getDirectory(), "latest-error.json"), "utf8")); } catch { return null; } })(), logs: readLogs({ limit: 500 }).entries });

@@ -69,7 +69,7 @@ assert.strictEqual(byId.get("cloudflare-tunnel").capabilities.serviceExposure, t
 assert.strictEqual(byId.get("cloudflare-tunnel").capabilities.httpServices, true, "Cloudflare must be limited to HTTP/HTTPS services.");
 assert.strictEqual(byId.get("manual-port-forwarding").capabilities.routerConfiguration, true, "Manual Port Forwarding must explain router configuration.");
 assert.strictEqual(byId.get("manual-port-forwarding").capabilities.firewallRules, true, "Manual Port Forwarding must expose firewall-rule requirements.");
-assert.strictEqual(byId.get("anxos-relay").status, "disabled", "AnxOS Relay must stay disabled without a real backend.");
+assert.strictEqual(byId.get("anxos-relay").status, "disabled", "AnxHost Relay must stay disabled without a real backend.");
 
 const playitService = publicAccess._test.buildServiceFromPlayitSnapshot({
   connected: true,
@@ -496,7 +496,7 @@ assert(indexSource.includes("data-playit-service-actions") && indexSource.includ
   "Create Service",
   "createAccessServiceForInstance(instance, \"playit\")",
   "providerResourceStatus: provider.id === \"cloudflare-tunnel\" ? \"not-created-by-anxos\"",
-  "This provider does not expose start controls through AnxOS.",
+  "This provider does not expose start controls through AnxHost.",
   "create-access-service",
   "api.publicAccess.createService",
   "install-dependency",

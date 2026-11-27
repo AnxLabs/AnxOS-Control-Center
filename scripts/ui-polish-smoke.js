@@ -213,7 +213,7 @@ assert(
 assert(!main.includes("openAddStorageWindow") && !main.includes("getCenteredChildBounds"), "The retired Add Storage child window must stay removed.");
 assert(index.includes('data-agent-control-action="start"') && index.includes('data-agent-control-action="installService"'), "Agent Control must expose real lifecycle and service actions.");
 assert(app.includes("Backup was already removed. Refreshed backup list."), "Backup UI must recover cleanly from stale already-deleted backup IDs.");
-assert(fs.readFileSync(path.join(root, "src", "services", "agentControlService.js"), "utf8").includes("Run AnxOS Control Center as Administrator"), "Windows Agent service install failures must explain elevation requirements.");
+assert(fs.readFileSync(path.join(root, "src", "services", "agentControlService.js"), "utf8").includes("Run AnxHost Control Center as Administrator"), "Windows Agent service install failures must explain elevation requirements.");
 assert(pageMarkup("agent-control").includes("Agent Connection") && pageMarkup("agent-control").includes('data-agent-setting="backendMode"'), "Agent configuration controls must render in Agent Control.");
 assert(pageMarkup("agent-control").includes("Application Host, Local Agent, and the selected Remote Agent") && pageMarkup("agent-control").includes("data-agent-local-host-list"), "Agent Control must show the local application host separately from remote Agents.");
 assert(pageMarkup("agent-control").includes("Diagnostics") && pageMarkup("agent-control").includes("Agent Connection"), "Agent Control must expose Diagnostics and Agent Connection sections.");
@@ -280,7 +280,7 @@ assert(index.includes("data-command-palette-open") && index.includes("data-comma
 assert(app.includes("function getCommandRegistry") && app.includes("function runCommandPaletteCommand") && app.includes("COMMAND_PALETTE_RECENTS_STORAGE_KEY"), "Renderer must wire a registry-backed Command Palette and recent command storage.");
 assert(styles.includes(".command-palette-dialog") && styles.includes(".command-palette-result.is-active"), "Command Palette CSS must include dialog and active command styling.");
 assert(pageMarkup("playit").includes("<h1>Sharing</h1>") && pageMarkup("playit").includes("data-public-access-service-card") && pageMarkup("playit").includes("data-public-access-service-actions"), "Playit workspace must be presented as Sharing with clickable service actions.");
-assert(pageMarkup("playit").includes("Cloudflare Tunnel") && pageMarkup("playit").includes("Tailscale") && pageMarkup("playit").includes("AnxOS Relay"), "Public Access must show future providers as disabled options.");
+assert(pageMarkup("playit").includes("Cloudflare Tunnel") && pageMarkup("playit").includes("Tailscale") && pageMarkup("playit").includes("AnxHost Relay"), "Public Access must show future providers as disabled options.");
 assert(app.includes("hasPublicAccess") && app.includes("renderPublicAccessSnapshot") && preload.includes("publicAccess:getSnapshot") && main.includes("registerPublicAccessIpc"), "Public Access must use the provider abstraction while preserving Playit compatibility.");
 assert(styles.includes('.page[data-page="instances"] .instances-controlbar {\n    grid-template-columns: repeat(3, minmax(0, 1fr));\n  }') && styles.includes('.page[data-page="instances"] .instances-controlbar .docker-actions {\n    grid-column: 1 / -1;'), "Instances responsive controls must override the desktop grid at normal restored window sizes.");
 assert(styles.includes('.page[data-page="instances"] .instances-table th:first-child') && styles.includes('min-width: 180px;') && styles.includes('.page[data-page="instances"] .instance-name-cell strong'), "Instances names must retain a readable column and normal word wrapping.");
@@ -289,7 +289,7 @@ assert(app.includes("function renderPublicAccessProviders") && app.includes("Tai
 assert(styles.includes(".public-access-grid") && styles.includes(".public-access-provider.is-disabled"), "Public Access CSS must include provider and service layout.");
 assert(app.includes("function createTextElement") && app.includes("function createSecurityBadgeElement"), "Renderer must keep safe DOM helper coverage for dynamic desktop surfaces.");
 assert(app.includes("pre = createTextElement(\"pre\", JSON.stringify(event.details || {}, null, 2)") && app.includes("createSvgElement(\"path\""), "High-risk diagnostics/security/icon surfaces must render through DOM APIs.");
-assert(app.includes("function isConfiguredStorageRootPath") && app.includes("Configured storage roots cannot be deleted from AnxOS"), "Files UI must prevent configured storage roots from being presented as deletable items.");
+assert(app.includes("function isConfiguredStorageRootPath") && app.includes("Configured storage roots cannot be deleted from AnxHost"), "Files UI must prevent configured storage roots from being presented as deletable items.");
 assert(app.includes('/^(?:provider|unknown|n\\/a)$/i.test(text)'), "Marketplace cards must suppress internal provider placeholder versions.");
 assert(
   addServerCss.includes('body[data-add-server-mode="create"] .create-server-wizard-actions {\n  position: static;') &&
@@ -319,7 +319,7 @@ assert(
   "function getFriendlyOperationText",
   "A server with this name already exists.",
   "projectId|fileId|versionId",
-  "Interrupted when AnxOS closed. Retry from the originating workspace.",
+  "Interrupted when AnxHost closed. Retry from the originating workspace.",
   "function isGenericDownloadTitle",
   "technicalDetails: failed",
 ].forEach((needle) => assert(app.includes(needle), `Marketplace reliability UI contract is missing: ${needle}`));

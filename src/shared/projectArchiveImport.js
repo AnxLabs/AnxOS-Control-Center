@@ -161,13 +161,13 @@ async function inspectProjectArchive(buffer, fileName = "", kind = "") {
     const dependencies = Object.keys(packageJson.dependencies || {});
     const hasModules = files.some((file) => file.path.startsWith("node_modules/"));
     if (dependencies.length > 0 && !hasModules) {
-      throw importError(`This project needs ${dependencies.length} package${dependencies.length === 1 ? "" : "s"} (${dependencies.slice(0, 3).join(", ")}${dependencies.length > 3 ? ", ..." : ""}) and the archive has no node_modules folder. AnxOS does not run npm yet: run "npm install --omit=dev" in the project folder, then zip it again with node_modules.`, "NODE_APP_DEPENDENCIES_MISSING");
+      throw importError(`This project needs ${dependencies.length} package${dependencies.length === 1 ? "" : "s"} (${dependencies.slice(0, 3).join(", ")}${dependencies.length > 3 ? ", ..." : ""}) and the archive has no node_modules folder. AnxHost does not run npm yet: run "npm install --omit=dev" in the project folder, then zip it again with node_modules.`, "NODE_APP_DEPENDENCIES_MISSING");
     }
   }
   if (kind === "python-application") {
     const requirements = listedPythonRequirements(files);
     if (requirements.length > 0) {
-      throw importError(`requirements.txt lists ${requirements.length} package${requirements.length === 1 ? "" : "s"} (${requirements.slice(0, 3).join(", ").slice(0, 80)}). AnxOS does not install Python packages yet, so this project cannot start on the chosen computer. Projects that use only the standard library can be deployed.`, "PYTHON_APP_PACKAGES_UNSUPPORTED");
+      throw importError(`requirements.txt lists ${requirements.length} package${requirements.length === 1 ? "" : "s"} (${requirements.slice(0, 3).join(", ").slice(0, 80)}). AnxHost does not install Python packages yet, so this project cannot start on the chosen computer. Projects that use only the standard library can be deployed.`, "PYTHON_APP_PACKAGES_UNSUPPORTED");
     }
   }
   return {

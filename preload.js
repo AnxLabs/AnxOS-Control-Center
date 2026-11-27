@@ -29,7 +29,7 @@ async function invokeAccount(channel, payload) {
     : await ipcRenderer.invoke(channel, payload);
 
   if (result && result.ok === false && result.error) {
-    const error = new Error(result.error.message || "AnxOS account request failed.");
+    const error = new Error(result.error.message || "AnxHost account request failed.");
     error.code = result.error.code || "ACCOUNT_REQUEST_FAILED";
     throw error;
   }

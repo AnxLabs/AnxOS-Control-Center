@@ -226,7 +226,7 @@ function createGateway({ certificates, sessions, api, webRoot, sharedRoot, icons
     const method = req.method;
     const isChange = method !== "GET" && method !== "HEAD";
     if (isChange) {
-      if (!sameOrigin(req)) return sendError(res, 403, "ORIGIN_REJECTED", "This request did not come from the AnxOS phone app.");
+      if (!sameOrigin(req)) return sendError(res, 403, "ORIGIN_REJECTED", "This request did not come from the AnxHost phone app.");
       if (!String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) return sendError(res, 415, "JSON_REQUIRED", "Requests must be JSON.");
     }
 
@@ -288,7 +288,7 @@ function createGateway({ certificates, sessions, api, webRoot, sharedRoot, icons
       req.socket.destroy();
       return undefined;
     }
-    if (!hostAllowed(req.headers.host)) return sendError(res, 421, "WRONG_HOST", "Open AnxOS using the address shown on the computer.");
+    if (!hostAllowed(req.headers.host)) return sendError(res, 421, "WRONG_HOST", "Open AnxHost using the address shown on the computer.");
     let url;
     try {
       url = new URL(req.url, `https://${req.headers.host}`);

@@ -28,13 +28,13 @@ async function invokeTelemetryOperation(operation) {
 
 function registerTelemetryIpc() {
   ipcMain.handle("telemetry:getSummary", async (_, payload = {}) => invokeTelemetryOperation(() => {
-    requireLocalOwnerAuthenticated("telemetry:getSummary", "Unlock AnxOS to view telemetry.");
+    requireLocalOwnerAuthenticated("telemetry:getSummary", "Unlock AnxHost to view telemetry.");
     requirePermission("telemetry:read", payload.nodeId);
     audit({ action: "telemetry.getSummary", target: payload.nodeId || "telemetry" });
     return getTelemetrySummary({ nodeId: payload.nodeId, sinceMs: payload.sinceMs });
   }));
   ipcMain.handle("telemetry:getSeries", async (_, payload = {}) => invokeTelemetryOperation(() => {
-    requireLocalOwnerAuthenticated("telemetry:getSeries", "Unlock AnxOS to view telemetry.");
+    requireLocalOwnerAuthenticated("telemetry:getSeries", "Unlock AnxHost to view telemetry.");
     requirePermission("telemetry:read", payload.nodeId);
     audit({ action: "telemetry.getSeries", target: payload.nodeId || "telemetry" });
     return getTelemetrySeries({
@@ -45,13 +45,13 @@ function registerTelemetryIpc() {
     });
   }));
   ipcMain.handle("telemetry:export", async (_, payload = {}) => invokeTelemetryOperation(() => {
-    requireLocalOwnerAuthenticated("telemetry:export", "Unlock AnxOS to export telemetry.");
+    requireLocalOwnerAuthenticated("telemetry:export", "Unlock AnxHost to export telemetry.");
     requirePermission("telemetry:export", payload.nodeId);
     audit({ action: "telemetry.export", target: payload.nodeId || "telemetry" });
     return exportTelemetry({ nodeId: payload.nodeId, sinceMs: payload.sinceMs });
   }));
   ipcMain.handle("telemetry:clear", async (_, payload = {}) => invokeTelemetryOperation(() => {
-    requireLocalOwnerAuthenticated("telemetry:clear", "Unlock AnxOS to clear telemetry.");
+    requireLocalOwnerAuthenticated("telemetry:clear", "Unlock AnxHost to clear telemetry.");
     requirePermission("telemetry:manage", payload.nodeId);
     audit({ action: "telemetry.clear", target: payload.nodeId || "telemetry" });
     return clearTelemetry();

@@ -164,7 +164,7 @@ function createPlayitAccountService(overrides = {}) {
     if (!state.running) throw accountError("PLAYIT_NOT_RUNNING", "Start playit before linking your account.", 409);
     if (state.linked === true) throw accountError("PLAYIT_ALREADY_LINKED", "playit is already linked to an account.", 409);
     if (state.linked !== false) {
-      throw accountError("PLAYIT_LINK_STATE_UNKNOWN", "AnxOS could not confirm that playit is unlinked, so it will not start linking.", 409);
+      throw accountError("PLAYIT_LINK_STATE_UNKNOWN", "AnxHost could not confirm that playit is unlinked, so it will not start linking.", 409);
     }
     const binary = await deps.findBinary();
     const session = {

@@ -9,13 +9,13 @@ const { audit, requireLocalOwnerAuthenticated, requirePermission } = require("..
 // stays in the read tier; it never changes a managed service.
 function registerInfrastructureInventoryIpc() {
   ipcMain.handle("infrastructureInventory:get", async () => {
-    requireLocalOwnerAuthenticated("infrastructureInventory:get", "Unlock AnxOS to view the infrastructure inventory.");
+    requireLocalOwnerAuthenticated("infrastructureInventory:get", "Unlock AnxHost to view the infrastructure inventory.");
     requirePermission("nodes:read");
     return getInventory();
   });
 
   ipcMain.handle("infrastructureInventory:refresh", async (_, payload = {}) => {
-    requireLocalOwnerAuthenticated("infrastructureInventory:refresh", "Unlock AnxOS to refresh the infrastructure inventory.");
+    requireLocalOwnerAuthenticated("infrastructureInventory:refresh", "Unlock AnxHost to refresh the infrastructure inventory.");
     requirePermission("nodes:read");
     return refreshInventory({ force: payload?.force === true });
   });
@@ -23,7 +23,7 @@ function registerInfrastructureInventoryIpc() {
   // AIM-2: Health vs Functional state of recognized services. Reading it never
   // probes anything, so it shares the inventory's read tier.
   ipcMain.handle("infrastructureInventory:functional", async () => {
-    requireLocalOwnerAuthenticated("infrastructureInventory:functional", "Unlock AnxOS to view functional checks.");
+    requireLocalOwnerAuthenticated("infrastructureInventory:functional", "Unlock AnxHost to view functional checks.");
     requirePermission("nodes:read");
     return describeFunctionalProbes();
   });
@@ -32,7 +32,7 @@ function registerInfrastructureInventoryIpc() {
   // the Owner approves a scope it sends requests to that service. Until then
   // (AIM-0) the gate records LIVE_RUNS_DEFERRED without sending anything.
   ipcMain.handle("infrastructureInventory:checkFunction", async (_, payload = {}) => {
-    requireLocalOwnerAuthenticated("infrastructureInventory:checkFunction", "Unlock AnxOS to run a functional check.");
+    requireLocalOwnerAuthenticated("infrastructureInventory:checkFunction", "Unlock AnxHost to run a functional check.");
     requirePermission("settings:write", payload.resourceKey || "functional-check");
     const resourceKey = typeof payload.resourceKey === "string" ? payload.resourceKey.slice(0, 512) : "";
     audit({ action: "infrastructure.functional-check", target: resourceKey || "unknown" });

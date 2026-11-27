@@ -126,7 +126,7 @@ function createAssistant({ executeReadTool, checkPermission = null, broker, prov
   async function routeWithModel(question, signal) {
     if (!provider?.completeJson) return null;
     const system = [
-      "You route questions for AnxOS Control Center, a game-server and computer manager.",
+      "You route questions for AnxHost Control Center, a game-server and computer manager.",
       "Reply with JSON only: {\"tool\": <tool id or null>, \"args\": {}, \"reason\": <short text>}.",
       "Choose one tool from the list, or null if none fits. Never invent tools or arguments.",
       `Tools: ${JSON.stringify(describeToolsForModel())}`,

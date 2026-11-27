@@ -52,14 +52,14 @@ function toPublicError(error) {
     || (typeof nested.message === "string" && nested.message !== "Request failed." && nested.message)
     || error?.message || "Request failed.";
   const mapped = {
-    LOGIN_REQUIRED: [423, "AnxOS is locked on the computer. Unlock it there to continue."],
-    AUTH_UNLOCK_REQUIRED: [423, "AnxOS is locked on the computer. Unlock it there to continue."],
-    AUTH_LOCKED: [423, "AnxOS is locked on the computer. Unlock it there to continue."],
-    LOCAL_CREDENTIALS_LOCKED: [423, "AnxOS is locked on the computer. Unlock it there to continue."],
+    LOGIN_REQUIRED: [423, "AnxHost is locked on the computer. Unlock it there to continue."],
+    AUTH_UNLOCK_REQUIRED: [423, "AnxHost is locked on the computer. Unlock it there to continue."],
+    AUTH_LOCKED: [423, "AnxHost is locked on the computer. Unlock it there to continue."],
+    LOCAL_CREDENTIALS_LOCKED: [423, "AnxHost is locked on the computer. Unlock it there to continue."],
     PERMISSION_DENIED: [403, "The account signed in on the computer can't do this."],
     INSTANCE_CONFIG_CONFLICT: [409, "Someone changed these settings since you opened them. Reload and try again."],
-    AGENT_UNAVAILABLE: [502, "AnxOS can't reach that computer right now."],
-    NODE_NOT_FOUND: [404, "That computer isn't known to AnxOS."],
+    AGENT_UNAVAILABLE: [502, "AnxHost can't reach that computer right now."],
+    NODE_NOT_FOUND: [404, "That computer isn't known to AnxHost."],
     INSTANCE_NOT_FOUND: [404, "That server doesn't exist."],
     PATH_NOT_FOUND: [404, "That file or folder doesn't exist."],
   }[code];
@@ -176,7 +176,7 @@ function createMobileApi({ services, security, now = () => Date.now() } = {}) {
       throw httpError(403, "ROLE_DENIED", `This phone was paired as ${device.role} and can't do this. Pair it again with a higher role on the computer.`);
     }
     const status = security.getStatus();
-    if (status.setupRequired) throw httpError(503, "SECURITY_SETUP_REQUIRED", "Set up AnxOS security on the computer before using phone access.");
+    if (status.setupRequired) throw httpError(503, "SECURITY_SETUP_REQUIRED", "Set up AnxHost security on the computer before using phone access.");
     try {
       security.requirePermission(permission, target);
     } catch (error) {
@@ -310,14 +310,14 @@ function createMobileApi({ services, security, now = () => Date.now() } = {}) {
   async function computerFor(nodeId) {
     const { computers } = await listComputers();
     const computer = computers.find((entry) => entry.id === nodeId);
-    if (!computer) throw httpError(404, "NODE_NOT_FOUND", "That computer isn't known to AnxOS.");
+    if (!computer) throw httpError(404, "NODE_NOT_FOUND", "That computer isn't known to AnxHost.");
     return computer;
   }
 
   async function instanceFor(nodeId, instanceId) {
     const computer = await computerFor(nodeId);
     const { servers, known, error } = await serversFor(computer);
-    if (!known) throw httpError(isOnline(computer) ? 502 : 409, "COMPUTER_UNAVAILABLE", error || "AnxOS can't reach that computer right now.");
+    if (!known) throw httpError(isOnline(computer) ? 502 : 409, "COMPUTER_UNAVAILABLE", error || "AnxHost can't reach that computer right now.");
     const server = servers.find((entry) => entry.id === instanceId);
     if (!server) throw httpError(404, "INSTANCE_NOT_FOUND", "That server doesn't exist.");
     return { computer, server };

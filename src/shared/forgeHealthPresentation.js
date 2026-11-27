@@ -74,7 +74,7 @@
         "Unreadable",
         "Report unreadable",
         forge.reason === "unsupported_schema"
-          ? "Project Forge's health report uses a format this version of AnxOS does not understand."
+          ? "Project Forge's health report uses a format this version of AnxHost does not understand."
           : "Project Forge's health report exists but could not be read.",
       );
     }

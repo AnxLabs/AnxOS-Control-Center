@@ -6074,7 +6074,7 @@
    "destination": "Computers › Add or edit computer"
   },
   {
-   "id": "CAP-NODES-CTL-desktop-computer-windows-or-desktop-linux-install-anxos-ther",
+   "id": "CAP-NODES-CTL-desktop-computer-windows-or-desktop-linux-install-anxhost-th",
    "kind": "control",
    "area": "region:node-modal",
    "hook": null,

@@ -495,13 +495,13 @@ async function updateRemoteAgent(nodeId, options = {}) {
   record.nodeAgentBuild = nodeAgentBuild;
   const buildComparison = compareAgentArtifactVersions(nodeAgentBuild, bundledBuild);
   if (buildComparison !== null && buildComparison > 0) {
-    throw fail("AGENT_DOWNGRADE_REFUSED", `The node's Agent (${nodeAgentBuild}) is newer than the bundled Agent runtime (${bundledBuild}) in this Desktop. Update AnxOS Control Center to a newer release instead of downgrading the node's Agent.`, { nodeAgentVersion, nodeAgentBuild, bundledVersion, bundledBuild });
+    throw fail("AGENT_DOWNGRADE_REFUSED", `The node's Agent (${nodeAgentBuild}) is newer than the bundled Agent runtime (${bundledBuild}) in this Desktop. Update AnxHost Control Center to a newer release instead of downgrading the node's Agent.`, { nodeAgentVersion, nodeAgentBuild, bundledVersion, bundledBuild });
   }
   if (nodeAgentBuild && buildComparison === null) {
-    throw fail("AGENT_BUILD_UNVERIFIED", `The node's Agent reports build ${nodeAgentBuild}, but this Desktop cannot read the build of its own bundled Agent runtime, so it cannot rule out a downgrade. Reinstall AnxOS Control Center, then retry.`, { nodeAgentVersion, nodeAgentBuild, bundledVersion, bundledBuild: null });
+    throw fail("AGENT_BUILD_UNVERIFIED", `The node's Agent reports build ${nodeAgentBuild}, but this Desktop cannot read the build of its own bundled Agent runtime, so it cannot rule out a downgrade. Reinstall AnxHost Control Center, then retry.`, { nodeAgentVersion, nodeAgentBuild, bundledVersion, bundledBuild: null });
   }
   if (compareAgentVersions(nodeAgentVersion, bundledVersion) > 0) {
-    throw fail("AGENT_DOWNGRADE_REFUSED", `The node's Agent (${nodeAgentVersion}) is newer than the bundled Agent runtime (${bundledVersion}) in this Desktop. Update AnxOS Control Center to a newer release instead of downgrading the node's Agent.`, { nodeAgentVersion, bundledVersion });
+    throw fail("AGENT_DOWNGRADE_REFUSED", `The node's Agent (${nodeAgentVersion}) is newer than the bundled Agent runtime (${bundledVersion}) in this Desktop. Update AnxHost Control Center to a newer release instead of downgrading the node's Agent.`, { nodeAgentVersion, bundledVersion });
   }
 
   mark("discover", "running");

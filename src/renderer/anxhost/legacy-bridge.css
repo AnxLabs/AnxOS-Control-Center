@@ -333,6 +333,21 @@
   color: var(--ahx-text-primary);
 }
 
+/* 217-B: the health chips ("Checked", "Issues", "Workspace") kept the dark
+   theme's translucent colours, 3.94:1 in the light theme. */
+:root[data-shell="ahx"] .node-health-meta-item {
+  border-color: var(--ahx-border-subtle);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .node-health-meta-item span {
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .node-health-meta-item strong {
+  color: var(--ahx-text-primary);
+}
+
 /* "Owner Only" badge on owner settings. */
 :root[data-shell="ahx"] .owner-only-badge {
   background: var(--ahx-accent-soft);

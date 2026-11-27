@@ -203,7 +203,7 @@
   function renderHeader(instance, readings, computer, players) {
     const typeChip = document.querySelector("[data-server-header=\"game\"]");
     if (typeChip && instance) typeChip.textContent = gameLabel(instance);
-    setChip('[data-server-header="computer"]', instance ? `On ${computer.name}` : "", computer.connected ? "" : "AnxOS can't reach this computer right now.");
+    setChip('[data-server-header="computer"]', instance ? `On ${computer.name}` : "", computer.connected ? "" : "AnxHost can't reach this computer right now.");
     const stale = readings.freshness === "stale" ? " (last reading)" : "";
     setChip('[data-server-header="cpu"]', readings.running && readings.cpu ? `CPU ${readings.cpu}${stale}` : "");
     setChip('[data-server-header="ram"]', readings.running && readings.ram ? `RAM ${readings.ram}${readings.ramLimit ? ` of ${readings.ramLimit}` : ""}${stale}` : "");

@@ -417,7 +417,7 @@ async function main() {
         const match = [...document.querySelectorAll("[data-server-fleet-row]")].find((entry) => entry.textContent.includes(name));
         return [...match.querySelectorAll("td")].map((cell) => cell.textContent.trim());
       }, NGINX);
-      assert(row.some((cell) => /Docker service.*AnxOS/.test(cell)), row.join(" | "));
+      assert(row.some((cell) => /Docker service.*AnxHost/.test(cell)), row.join(" | "));
       assert(row.some((cell) => cell.includes(String(NGINX_PORT))), "ports shown");
       assert(row.some((cell) => cell.includes(`${NGINX}-site`)), "kept data shown");
       // Build 215 RC3 finding: this profile's application host and its Lab PC

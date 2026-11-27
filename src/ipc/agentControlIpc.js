@@ -15,7 +15,7 @@ function normalizeAgentControlError(error) {
 function authorize(operation) {
   requireLocalOwnerAuthenticated(
     `agent-control:${operation}`,
-    operation === "start" ? "Unlock AnxOS to start the Local Agent." : "Unlock AnxOS to manage the Local Agent.",
+    operation === "start" ? "Unlock AnxHost to start the Local Agent." : "Unlock AnxHost to manage the Local Agent.",
   );
   return requireOwner(`agent-control:${operation}`);
 }

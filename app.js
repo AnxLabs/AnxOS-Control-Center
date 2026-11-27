@@ -1686,7 +1686,7 @@ const ONBOARDING_STEPS = [
   {
     id: "sign-in",
     title: "Sign In",
-    description: "Sign in to your AnxOS account for cloud and remote features, or continue with local-only setup.",
+    description: "Sign in to your AnxHost account for cloud and remote features, or continue with local-only setup.",
   },
   {
     id: "local-owner",
@@ -1727,44 +1727,44 @@ const ONBOARDING_SETUP_TYPES = [
 const PAGE_INTRODUCTIONS = {
   dashboard: ["System overview", "See connected systems, running services, and recommended next steps for the selected system / node."],
   marketplace: ["Install servers and tools", "Browse supported templates and install servers through the existing Marketplace pipeline on the selected system / node."],
-  instances: ["Manage installed servers", "Start, stop, configure, inspect, and open files for each instance - an installed server managed by AnxOS."],
+  instances: ["Manage installed servers", "Start, stop, configure, inspect, and open files for each instance - an installed server managed by AnxHost."],
   docker: ["Manage containers", "View Docker containers, images, volumes, networks, logs, and actions for the selected system / node."],
   files: ["Browse and edit files", "Open local or Agent-backed file targets. File actions run against the selected storage profile and system."],
   ssh: ["Connect to remote systems", "Use saved SSH profiles to connect to systems when terminal access is needed."],
   console: ["Run and view commands", "Monitor instance console output and send supported commands to managed servers."],
   playit: ["Make services reachable", "Configure Public Access providers for supported services on the selected system / node."],
   backups: ["Protect your server data", "Create, restore, import, and manage backups for supported instances."],
-  "agent-control": ["Manage AnxOS connections", "Check the desktop host, local Agent, remote Agents, service registration, logs, and diagnostics."],
+  "agent-control": ["Manage AnxHost connections", "Check the desktop host, local Agent, remote Agents, service registration, logs, and diagnostics."],
   security: ["Review security settings", "Inspect account, session, token, audit, and security status. Some controls are Owner-only."],
   nodes: ["Manage systems / nodes", "Register and switch between this desktop application host and remote Agent systems."],
   network: ["Endpoints and connectivity", "Manage saved endpoints, provider status, connectivity diagnostics, and the connectivity graph for the selected system / node."],
-  settings: ["Customize AnxOS", "Change local preferences, guidance options, connections, updates, and Owner-only administration settings."],
+  settings: ["Customize AnxHost", "Change local preferences, guidance options, connections, updates, and Owner-only administration settings."],
   operations: ["Track background work", "Review installs, file transfers, dependency jobs, and other long-running operations."],
   maintenance: ["Clean up and repair", "Run supported cleanup, maintenance, and UI-state reset actions."],
 };
 const CONTEXTUAL_HELP_TOPICS = {
   agent: {
     title: "Agent",
-    explanation: "The Agent runs on a managed computer and allows AnxOS to control services, files, containers, servers, and system information.",
+    explanation: "The Agent runs on a managed computer and allows AnxHost to control services, files, containers, servers, and system information.",
     details: "The desktop app is the interface. The Agent is the service on a local or remote system that performs trusted management actions.",
     action: { label: "Open Agent Control", page: "agent-control" },
   },
   system: {
     title: "System / Node",
-    explanation: "A system is a Windows or Linux computer connected to AnxOS.",
+    explanation: "A system is a Windows or Linux computer connected to AnxHost.",
     details: "Node is the technical name for a managed system. The local desktop host and remote Agents use separate identities.",
     action: { label: "Open Nodes", page: "nodes" },
   },
   instance: {
     title: "Instance",
-    explanation: "An instance is a server installed and managed through AnxOS.",
+    explanation: "An instance is a server installed and managed through AnxHost.",
     details: "Instances can have files, logs, ports, backups, console commands, and lifecycle actions such as start or stop.",
     action: { label: "Open Instances", page: "instances" },
   },
   docker: {
     title: "Docker",
     explanation: "Docker runs applications in isolated containers.",
-    details: "AnxOS can manage containers, images, volumes, networks, Compose projects, logs, and stats when Docker is available on the selected system.",
+    details: "AnxHost can manage containers, images, volumes, networks, Compose projects, logs, and stats when Docker is available on the selected system.",
     action: { label: "Open Docker", page: "docker" },
   },
   "public-access": {
@@ -1799,13 +1799,13 @@ const CONTEXTUAL_HELP_TOPICS = {
   },
   dependency: {
     title: "Dependency",
-    explanation: "A dependency is another program required by a server or AnxOS feature.",
+    explanation: "A dependency is another program required by a server or AnxHost feature.",
     details: "Examples include Java, Docker, .NET, SteamCMD, Tailscale, cloudflared, Git, npm, and PowerShell.",
     action: { label: "Check Dependencies", page: "agent-control" },
   },
   "service-registration": {
     title: "Service Registration",
-    explanation: "Service registration allows the AnxOS Agent to start automatically with the operating system.",
+    explanation: "Service registration allows the AnxHost Agent to start automatically with the operating system.",
     details: "Some service registration changes require administrator privileges and are platform-specific.",
     action: { label: "Open Agent Control", page: "agent-control" },
   },
@@ -2896,13 +2896,13 @@ function normalizeIpcErrorMessage(error, fallback = "Request failed.") {
     message = message.replace(ipcPrefixPattern, "").trim();
   }
   if (/SECURE_SESSION_(?:DECRYPT_FAILED|CORRUPT|SCHEMA_INVALID|SCHEMA_UNSUPPORTED)/i.test(message)) {
-    return "Your saved session could not be restored. Please unlock AnxOS again.";
+    return "Your saved session could not be restored. Please unlock AnxHost again.";
   }
   if (/NODE_CREDENTIAL_DECRYPT_FAILED/i.test(message)) {
-    return "Saved node credentials could not be restored. Unlock AnxOS to continue.";
+    return "Saved node credentials could not be restored. Unlock AnxHost to continue.";
   }
   if (/AUTH_UNLOCK_REQUIRED|OWNER_REQUIRED|LOGIN_REQUIRED/i.test(message)) {
-    return "Unlock AnxOS to continue.";
+    return "Unlock AnxHost to continue.";
   }
   return message || fallback;
 }
@@ -2915,9 +2915,9 @@ function isAuthRecoveryLocked() {
     accountState?.recoveryRequired === true;
 }
 
-function blockProtectedAction(message = "Unlock AnxOS to continue.") {
+function blockProtectedAction(message = "Unlock AnxHost to continue.") {
   if (!isAuthRecoveryLocked()) return false;
-  if (securityMessage) securityMessage.textContent = securityState?.recoveryMessage || "Unlock AnxOS to continue.";
+  if (securityMessage) securityMessage.textContent = securityState?.recoveryMessage || "Unlock AnxHost to continue.";
   showToast(message, "warning");
   return true;
 }
@@ -2961,7 +2961,7 @@ const FRIENDLY_ERROR_DEFINITIONS = [
     codes: ["AGENT_INCOMPATIBLE", "AGENT_VERSION_INCOMPATIBLE", "AGENT_PROTOCOL_INCOMPATIBLE"],
     pattern: /agent.*(incompatible|update required)|unsupported.*(api|protocol).*version/i,
     message: "Agent update required.",
-    suggestion: "Your connected Agent is older than this version of AnxOS Control Center. Update the Agent on this node before using protected Agent features.",
+    suggestion: "Your connected Agent is older than this version of AnxHost Control Center. Update the Agent on this node before using protected Agent features.",
     actions: ["Update Agent", "Retry Connection", "View Diagnostics"],
   },
   {
@@ -3008,7 +3008,7 @@ const FRIENDLY_ERROR_DEFINITIONS = [
     id: "permission-denied",
     codes: ["EACCES", "EPERM", "PERMISSION_DENIED", "ACCESS_DENIED"],
     pattern: /permission denied|access is denied|EACCES|EPERM/i,
-    message: "AnxOS does not have permission to complete this action.",
+    message: "AnxHost does not have permission to complete this action.",
     suggestion: "Check file, service, or administrator permissions on the selected system.",
     actions: ["View Diagnostics"],
   },
@@ -3089,13 +3089,13 @@ function getFriendlyErrorTechnicalDetails(error = {}, fallback = "Request failed
   };
 }
 
-function normalizeFriendlyError(error = {}, fallback = "AnxOS encountered an unexpected problem.") {
+function normalizeFriendlyError(error = {}, fallback = "AnxHost encountered an unexpected problem.") {
   const definition = findFriendlyErrorDefinition(error, fallback);
   const technicalDetails = getFriendlyErrorTechnicalDetails(error, fallback);
   if (!definition) {
     return {
       id: "unexpected",
-      message: "AnxOS encountered an unexpected problem.",
+      message: "AnxHost encountered an unexpected problem.",
       suggestion: "Open diagnostics or copy the technical details for troubleshooting.",
       actions: ["View Diagnostics", "Copy Technical Details"],
       technicalDetails,
@@ -5651,7 +5651,7 @@ async function confirmRemoteAgentUpdate(support = {}, fallbackName = "this node"
   const method = getRemoteAgentUpdateMethod(support);
   const host = support.verification?.hostname || null;
   const restartNote = method === "package"
-    ? "The Agent restarts. AnxOS refuses the update while servers run under the Agent. Docker containers and services with their own system unit keep running, and other system services are not restarted (needrestart is told to list only)."
+    ? "The Agent restarts. AnxHost refuses the update while servers run under the Agent. Docker containers and services with their own system unit keep running, and other system services are not restarted (needrestart is told to list only)."
     : "The Agent restarts, so servers it runs on this computer stop. Docker containers and services with their own system unit keep running.";
   return createSecurityConfirmation({
     eyebrow: "Agent update",
@@ -5673,7 +5673,7 @@ async function confirmRemoteAgentUpdate(support = {}, fallbackName = "this node"
 function getRemoteAgentUpdateBlockMessage(support = {}) {
   if (support.reason === "platform") return "Automatic Agent updates over SSH are available for Linux nodes only.";
   if (support.reason === "key") return "The node's SSH profile signs in with a password. On the SSH page, choose Set up key sign-in for it (the password profile stays as a fallback), then Verify Access.";
-  if (support.reason === "unverified") return support.verification?.message || "Select Verify Access first: AnxOS confirms this SSH profile reaches this node.";
+  if (support.reason === "unverified") return support.verification?.message || "Select Verify Access first: AnxHost confirms this SSH profile reaches this node.";
   return "Assign an SSH profile to this node before updating its Agent from this Desktop.";
 }
 
@@ -5902,7 +5902,7 @@ function renderAgentCompatibilityCard(target, runtime) {
   const dismiss = card.querySelector('[data-agent-compatibility-action="dismiss"]');
   if (title) title.textContent = view.incompatible ? "Agent Update Required" : "Agent Compatible";
   if (message) message.textContent = view.incompatible
-    ? "Your connected Agent is older than this version of AnxOS Control Center. Update the Agent on this node before using protected Agent features."
+    ? "Your connected Agent is older than this version of AnxHost Control Center. Update the Agent on this node before using protected Agent features."
     : "All protected Agent features are available.";
   if (status) {
     status.textContent = view.incompatible ? "Update Required" : "Compatible";
@@ -6069,7 +6069,7 @@ function renderAgentControlState(payload = agentControlState) {
       button.title = "Force Restart is only available for this PC's Agent. Use Restart for a node.";
       button.setAttribute("aria-description", button.title);
     } else if (["repairAgent", "installService", "uninstallService", "enableAutoStart", "disableAutoStart"].includes(action) && serviceNeedsElevation) {
-      button.title = "Run AnxOS Control Center as Administrator, then retry this Agent service action.";
+      button.title = "Run AnxHost Control Center as Administrator, then retry this Agent service action.";
     } else if (action === "stopOldLocalAgentAndRepair" && serviceNeedsElevation) {
       button.title = "Windows will show an administrator prompt if service repair requires elevation.";
     } else {
@@ -6565,7 +6565,7 @@ function getLocalAgentFriendlyState(localAgent = {}) {
     return {
       status: "Authentication issue",
       tone: "critical",
-      message: "The local Agent is reachable, but AnxOS cannot authenticate with it.",
+      message: "The local Agent is reachable, but AnxHost cannot authenticate with it.",
       actions: [
         { label: "Reconnect", agentAction: "reconnect", primary: true },
         { label: "View Diagnostics", agentAction: "runDiagnostics" },
@@ -6587,7 +6587,7 @@ function getLocalAgentFriendlyState(localAgent = {}) {
     return {
       status: "Unsupported",
       tone: "planned",
-      message: "This platform does not support local Agent service management from AnxOS.",
+      message: "This platform does not support local Agent service management from AnxHost.",
       actions: [{ label: "View Diagnostics", agentAction: "runDiagnostics" }],
     };
   }
@@ -6595,7 +6595,7 @@ function getLocalAgentFriendlyState(localAgent = {}) {
     return {
       status: "Unable to confirm",
       tone: "warning",
-      message: "AnxOS could not confirm the local Agent state. It may be stopped or unreachable.",
+      message: "AnxHost could not confirm the local Agent state. It may be stopped or unreachable.",
       actions: [
         { label: "Retry Check", agentAction: "refresh", primary: true },
         { label: "View Diagnostics", agentAction: "runDiagnostics" },
@@ -6605,7 +6605,7 @@ function getLocalAgentFriendlyState(localAgent = {}) {
   return {
     status: "Ready to start",
     tone: "planned",
-    message: "Start the bundled local Agent when you want AnxOS to manage files, servers, containers, and services on this computer.",
+    message: "Start the bundled local Agent when you want AnxHost to manage files, servers, containers, and services on this computer.",
     actions: [
       { label: "Start Agent", agentAction: "start", primary: true },
       { label: "View Diagnostics", agentAction: "runDiagnostics" },
@@ -6641,7 +6641,7 @@ function renderAgentBeginnerSummary(payload = agentControlState) {
       actions: [{ label: "Open Node Details", page: "nodes" }],
     }),
     createAgentSummaryCard({
-      title: "Local AnxOS Agent",
+      title: "Local AnxHost Agent",
       subtitle: localState.message,
       status: localState.status,
       statusTone: localState.tone,
@@ -7380,7 +7380,7 @@ async function refreshAgentControl({ includeConfig = false } = {}) {
   }
   if (agentControlBusy || agentControlRefreshInFlight) return;
   if (isAuthRecoveryLocked()) {
-    if (agentControlMessage) agentControlMessage.textContent = "Unlock AnxOS to manage Agent connections.";
+    if (agentControlMessage) agentControlMessage.textContent = "Unlock AnxHost to manage Agent connections.";
     setAgentControlStatusPill("Unavailable");
     return;
   }
@@ -7466,8 +7466,8 @@ async function runAgentControlAction(action) {
   if (!api || agentControlBusy) return;
   if (blockIncompatibleAgentAction(action)) return;
   if (blockProtectedAction(action === "start" || action === "installLocalAgent" || action === "repairAgent"
-    ? "Unlock AnxOS to start the Local Agent."
-    : "Unlock AnxOS to manage Agent connections.")) return;
+    ? "Unlock AnxHost to start the Local Agent."
+    : "Unlock AnxHost to manage Agent connections.")) return;
   const actionTarget = getAgentControlOverviewTarget();
   if (!actionTarget) {
     if (agentControlMessage) agentControlMessage.textContent = "Agent Control is still loading this computer. Try again in a moment.";
@@ -7481,11 +7481,11 @@ async function runAgentControlAction(action) {
   if (remoteLifecycleAction && action !== "start" && !(await createSecurityConfirmation({
     title: action === "stop" ? `Stop the Agent on ${remoteNodeName}?` : `Restart the Agent on ${remoteNodeName}?`,
     message: action === "stop"
-      ? "Instances the Agent runs on that node stop, and AnxOS cannot reach the node until its Agent is started again (Start needs the node's SSH key profile). Services managed by systemd keep running."
+      ? "Instances the Agent runs on that node stop, and AnxHost cannot reach the node until its Agent is started again (Start needs the node's SSH key profile). Services managed by systemd keep running."
       : "Instances the Agent runs on that node stop while it restarts. Services managed by systemd keep running.",
     confirmLabel: action === "stop" ? "Stop Agent" : "Restart Agent",
   }))) return;
-  const destructive = { stop: ["Stop local Agent?", "Active Agent operations will disconnect."], forceRestart: ["Force restart local Agent?", "The Agent process will be terminated immediately."], repairAgent: ["Repair local Agent?", "Background registration will be reinstalled and the Agent restarted."], stopOldLocalAgentAndRepair: ["Stop Old Local Agent and Repair?", "AnxOS will stop only a verified old AnxOS Local Agent process, recreate local credentials, and repair Windows startup registration."], updateAllAgents: ["Update all Agents?", "AnxOS updates each connected Linux computer's Agent to this Desktop's build over SSH, one at a time. Package installs use the verified release package and roll back if the new Agent doesn't come up. A computer with servers running under its Agent is skipped; Docker containers and separate system services keep running."], updateAgent: remoteUpdateSupport.supported ? ["Update the Agent on this node?", "AnxOS updates the node's Agent to this Desktop's build over SSH: from the verified release package when the Agent is installed as a package, otherwise from the bundled runtime. It backs up, restarts and verifies the Agent, and rolls back if it doesn't come up. Servers running under the Agent stop during the restart; a package install is refused while any run."] : ["Update Local Agent?", "AnxOS will back up Agent configuration, stop the Local Agent, repair the bundled runtime registration, restart it, and verify health."], uninstallService: ["Uninstall Agent background service?", "Automatic startup will be removed."], resetConfig: ["Reset Agent configuration?", "Current settings will be backed up before defaults are restored."] }[action];
+  const destructive = { stop: ["Stop local Agent?", "Active Agent operations will disconnect."], forceRestart: ["Force restart local Agent?", "The Agent process will be terminated immediately."], repairAgent: ["Repair local Agent?", "Background registration will be reinstalled and the Agent restarted."], stopOldLocalAgentAndRepair: ["Stop Old Local Agent and Repair?", "AnxHost will stop only a verified old AnxHost Local Agent process, recreate local credentials, and repair Windows startup registration."], updateAllAgents: ["Update all Agents?", "AnxHost updates each connected Linux computer's Agent to this Desktop's build over SSH, one at a time. Package installs use the verified release package and roll back if the new Agent doesn't come up. A computer with servers running under its Agent is skipped; Docker containers and separate system services keep running."], updateAgent: remoteUpdateSupport.supported ? ["Update the Agent on this node?", "AnxHost updates the node's Agent to this Desktop's build over SSH: from the verified release package when the Agent is installed as a package, otherwise from the bundled runtime. It backs up, restarts and verifies the Agent, and rolls back if it doesn't come up. Servers running under the Agent stop during the restart; a package install is refused while any run."] : ["Update Local Agent?", "AnxHost will back up Agent configuration, stop the Local Agent, repair the bundled runtime registration, restart it, and verify health."], uninstallService: ["Uninstall Agent background service?", "Automatic startup will be removed."], resetConfig: ["Reset Agent configuration?", "Current settings will be backed up before defaults are restored."] }[action];
   if (action === "updateAgent" && remoteUpdateSupport.supported) {
     if (!(await confirmRemoteAgentUpdate(remoteUpdateSupport, remoteNodeName))) return;
   } else if (destructive && !remoteLifecycleAction && !(await createSecurityConfirmation({ title: destructive[0], message: destructive[1], confirmLabel: "Continue" }))) return;
@@ -7553,7 +7553,7 @@ async function runAgentControlAction(action) {
       await refreshNodes();
     }
     else if (action === "learnLocalAgent") {
-      showToast("The Local Agent runs on this PC so AnxOS can manage local servers, files, backups, dependencies, and services without a separate Debian server.", "info");
+      showToast("The Local Agent runs on this PC so AnxHost can manage local servers, files, backups, dependencies, and services without a separate Debian server.", "info");
     }
     else if (action === "startPairingSession") {
       if (typeof api.startPairingSession !== "function") throw new Error("Agent pairing setup is unavailable in this build.");
@@ -9313,7 +9313,7 @@ function getPublicAccessActionDefinitions(provider = {}, service = {}) {
       supported: capabilities.createService === true && ((provider.id === "playit" && provider.installed === true) || (provider.id === "tailscale" && provider.connected === true) || (provider.id === "cloudflare-tunnel" && provider.installed === true && provider.authenticated === true)),
       reason: provider.id === "playit"
         ? provider.installed === true
-          ? (capabilities.unsupportedCreateReason || "AnxOS can save a Playit access record and reconcile it after Playit reports the tunnel.")
+          ? (capabilities.unsupportedCreateReason || "AnxHost can save a Playit access record and reconcile it after Playit reports the tunnel.")
           : "Install and start Playit.gg before creating an access service."
         : provider.id === "tailscale"
           ? "Tailscale must be connected before creating a private tailnet service."
@@ -9335,12 +9335,12 @@ function getPublicAccessActionDefinitions(provider = {}, service = {}) {
     },
     { action: "open-logs", label: "Open logs", supported: true },
     { action: "refresh", label: "Refresh", supported: true },
-    { action: "copy-public-address", label: "Copy public address", supported: capabilities.publicAddress === true && hasPublicAddress, reason: capabilities.publicAddress === true ? "No public address has been detected yet." : "This provider does not expose a public address through AnxOS." },
+    { action: "copy-public-address", label: "Copy public address", supported: capabilities.publicAddress === true && hasPublicAddress, reason: capabilities.publicAddress === true ? "No public address has been detected yet." : "This provider does not expose a public address through AnxHost." },
     { action: "copy-local-endpoint", label: "Copy local endpoint", supported: hasLocalEndpoint, reason: "No local endpoint has been detected for this provider." },
     { action: "tunnel-config", label: "Open tunnel configuration", supported: provider.id === "playit" || capabilities.createTunnel === true || capabilities.listTunnels === true, reason: provider.recoveryAction || "Tunnel configuration is not supported for this provider yet." },
     { action: "provider-diagnostics", label: "Open provider diagnostics", supported: capabilities.diagnostics === true, reason: "Provider diagnostics are not available for this provider." },
-    { action: "start-service", label: "Start service", supported: capabilities.startService === true, reason: capabilities.startService === false ? "This provider does not expose start controls through AnxOS." : "Start is unavailable for this provider." },
-    { action: "stop-service", label: "Stop service", supported: capabilities.stopService === true, reason: capabilities.stopService === false ? "This provider does not expose stop controls through AnxOS." : "Stop is unavailable for this provider." },
+    { action: "start-service", label: "Start service", supported: capabilities.startService === true, reason: capabilities.startService === false ? "This provider does not expose start controls through AnxHost." : "Start is unavailable for this provider." },
+    { action: "stop-service", label: "Stop service", supported: capabilities.stopService === true, reason: capabilities.stopService === false ? "This provider does not expose stop controls through AnxHost." : "Stop is unavailable for this provider." },
   ];
   return actions;
 }
@@ -9657,9 +9657,9 @@ function getPlayitAccountSummary(account, step) {
       return { pill: "Linking", tone: "status-pill--planned", message: "Asking Playit for an approval link..." };
     }
     if (account.linked === null) {
-      return { pill: "Unknown", tone: "status-pill--planned", message: "AnxOS couldn't confirm whether Playit is linked, so it won't change anything. Check Playit's own setup, then check again." };
+      return { pill: "Unknown", tone: "status-pill--planned", message: "AnxHost couldn't confirm whether Playit is linked, so it won't change anything. Check Playit's own setup, then check again." };
     }
-    return { pill: "Not linked", tone: "status-pill--warning", message: "Link Playit to your Playit.gg account. You approve it in your browser; AnxOS never sees your password." };
+    return { pill: "Not linked", tone: "status-pill--warning", message: "Link Playit to your Playit.gg account. You approve it in your browser; AnxHost never sees your password." };
   }
   const count = latestPlayitTunnels.length;
   return {
@@ -9989,8 +9989,8 @@ async function deletePublicAccessFirewallRule(name) {
     return;
   }
   if (!(await confirmDestructiveAction({
-    title: "Remove AnxOS firewall rule?",
-    message: `AnxOS will remove the inbound rule "${name}" it created. Services relying on this rule may become unreachable.`,
+    title: "Remove AnxHost firewall rule?",
+    message: `AnxHost will remove the inbound rule "${name}" it created. Services relying on this rule may become unreachable.`,
     confirmLabel: "Remove Rule",
   }))) {
     return;
@@ -10034,15 +10034,15 @@ function renderPublicAccessFirewallRules(result = null) {
   const rules = Array.isArray(result.rules) ? result.rules : [];
   setPublicAccessFirewallPill(pill, rules.length ? `${rules.length} managed` : "None", rules.length ? "status-pill--ok" : "status-pill--planned");
   setPublicAccessFirewallMessage(summary, rules.length
-    ? "These inbound rules were created by AnxOS and can be removed here."
-    : "No AnxOS-managed inbound firewall rules were found. Rules created outside AnxOS are never shown as removable.");
+    ? "These inbound rules were created by AnxHost and can be removed here."
+    : "No AnxHost-managed inbound firewall rules were found. Rules created outside AnxHost are never shown as removable.");
   rules.forEach((rule) => {
     const row = document.createElement("article");
     row.className = "playit-tunnel-item";
     row.dataset.publicAccessFirewallRule = rule.name || rule.id || "";
     const top = document.createElement("div");
     top.className = "playit-tunnel-item__top";
-    top.append(createTextElement("strong", rule.name || rule.id || "AnxOS rule"));
+    top.append(createTextElement("strong", rule.name || rule.id || "AnxHost rule"));
     const parts = [
       `${String(rule.protocol || "TCP").toUpperCase()} ${rule.localPort || "?"}`,
       rule.direction === "out" ? "Outbound" : "Inbound",
@@ -10122,7 +10122,7 @@ function describeRouteCertificate(certificate = null) {
   }
   if (source.issuer) detailParts.push(`Issuer ${source.issuer}`);
   if (typeof source.message === "string" && source.message) detailParts.push(source.message);
-  if (source.issuanceSupported === false && tlsMode === "managed") detailParts.push("AnxOS does not issue certificates in this build.");
+  if (source.issuanceSupported === false && tlsMode === "managed") detailParts.push("AnxHost does not issue certificates in this build.");
   return {
     tlsMode,
     state,
@@ -10245,8 +10245,8 @@ function renderPublicAccessReverseProxy(result = null, elements = null) {
     routeCount ? "status-pill--planned" : "status-pill--planned",
   );
   setPublicAccessFirewallMessage(summary, routeCount
-    ? `AnxOS stores these route definitions. ${status.validCertificateCount} of ${routeCount} certificate record${routeCount === 1 ? "" : "s"} report a readable, verified expiry.`
-    : "No reverse-proxy routes are recorded for this node. AnxOS never writes proxy configuration in this build.");
+    ? `AnxHost stores these route definitions. ${status.validCertificateCount} of ${routeCount} certificate record${routeCount === 1 ? "" : "s"} report a readable, verified expiry.`
+    : "No reverse-proxy routes are recorded for this node. AnxHost never writes proxy configuration in this build.");
 
   if (notice) {
     // Applied outcomes and capability gaps are stated explicitly rather than
@@ -10254,10 +10254,10 @@ function renderPublicAccessReverseProxy(result = null, elements = null) {
     if (status.appliedRequest && status.applied === false) {
       notice.append(createTextElement("p", `Route recorded but NOT applied: ${status.activationMessage || "no proxy configuration is written in this build."}`));
     } else if (status.activationUnavailable && routeCount) {
-      notice.append(createTextElement("p", status.activationMessage || "AnxOS does not write proxy configuration in this build, so no traffic is routed."));
+      notice.append(createTextElement("p", status.activationMessage || "AnxHost does not write proxy configuration in this build, so no traffic is routed."));
     }
     if (status.issuanceUnavailable) {
-      notice.append(createTextElement("p", status.issuanceMessage || "AnxOS does not issue certificates in this build; a managed request stays pending."));
+      notice.append(createTextElement("p", status.issuanceMessage || "AnxHost does not issue certificates in this build; a managed request stays pending."));
     }
     if (status.upstreamReachability && status.upstreamReachability.reachable === false) {
       notice.append(createTextElement("p", `Upstream check: ${status.upstreamReachability.message || "the upstream did not accept a connection."}`));
@@ -10337,7 +10337,7 @@ async function applyPublicAccessReverseProxyRoute(event) {
   if (fields.tlsMode === "managed") {
     // State the limitation before the request so the operator is not surprised
     // by a `pending` certificate afterwards.
-    showToast("Managed TLS is recorded as a request only. AnxOS does not issue certificates in this build.", "warning");
+    showToast("Managed TLS is recorded as a request only. AnxHost does not issue certificates in this build.", "warning");
   }
   const requestContext = createNodeActionContext("public-access-reverse-proxy-apply");
   try {
@@ -11320,7 +11320,7 @@ async function submitProviderAccessService(provider = {}, values = {}, requestCo
     state: provider.id === "playit" ? "pending-provider-setup" : undefined,
     status: provider.id === "playit" ? "Pending Playit tunnel setup" : undefined,
     providerResourceStatus: provider.id === "cloudflare-tunnel" ? "not-created-by-anxos" : (provider.id === "playit" ? "not-created-by-anxos" : undefined),
-    unsupportedReason: provider.id === "cloudflare-tunnel" ? "Cloudflare web service metadata was saved. Create or link the named tunnel and ingress route before relying on public traffic." : (provider.id === "playit" ? "AnxOS saved this access service, but Playit tunnel creation is not exposed by the detected integration. Create or link the matching Playit tunnel, then refresh." : undefined),
+    unsupportedReason: provider.id === "cloudflare-tunnel" ? "Cloudflare web service metadata was saved. Create or link the named tunnel and ingress route before relying on public traffic." : (provider.id === "playit" ? "AnxHost saved this access service, but Playit tunnel creation is not exposed by the detected integration. Create or link the matching Playit tunnel, then refresh." : undefined),
     privateAddress: provider.id === "tailscale" ? tailscaleEndpoint?.address || buildTailscalePrivateAddress(provider, localPort) : null,
     publicAddress: provider.id === "cloudflare-tunnel" ? publicHostname : null,
     publicHostname: provider.id === "cloudflare-tunnel" ? publicHostname : null,
@@ -11392,7 +11392,7 @@ async function createAccessServiceForInstance(instance = findInstance(), preferr
   // that refuses management ports and asks for explicit approval.
   const managementPortName = AnxShareHealth.getManagementPortName(suggestion.localPort);
   if (managementPortName) {
-    throw Object.assign(new Error(`Port ${suggestion.localPort} is used by ${managementPortName}. AnxOS never shares management ports automatically.`), { code: "PUBLIC_ACCESS_SENSITIVE_PORT" });
+    throw Object.assign(new Error(`Port ${suggestion.localPort} is used by ${managementPortName}. AnxHost never shares management ports automatically.`), { code: "PUBLIC_ACCESS_SENSITIVE_PORT" });
   }
   const approved = await createSecurityConfirmation({
     title: suggestion.providerId === "tailscale" ? `Share ${instance.displayName || instance.id} on your Tailscale network?` : `Share ${instance.displayName || instance.id} over the internet?`,
@@ -11424,7 +11424,7 @@ async function createAccessServiceForInstance(instance = findInstance(), preferr
     localServiceUrl: suggestion.providerId === "cloudflare-tunnel" ? `${suggestion.protocol}://${suggestion.localHost}:${suggestion.localPort}` : null,
     ingressStatus: suggestion.providerId === "cloudflare-tunnel" ? "pending-config" : null,
     providerResourceStatus: suggestion.providerId === "cloudflare-tunnel" ? "not-created-by-anxos" : (suggestion.providerId === "playit" ? "not-created-by-anxos" : undefined),
-    unsupportedReason: suggestion.providerId === "cloudflare-tunnel" ? "Cloudflare web service metadata was saved. Create or link the named tunnel and ingress route before relying on public traffic." : (suggestion.providerId === "playit" ? "AnxOS saved this access service, but Playit tunnel creation is not exposed by the detected integration. Create or link the matching Playit tunnel, then refresh." : undefined),
+    unsupportedReason: suggestion.providerId === "cloudflare-tunnel" ? "Cloudflare web service metadata was saved. Create or link the named tunnel and ingress route before relying on public traffic." : (suggestion.providerId === "playit" ? "AnxHost saved this access service, but Playit tunnel creation is not exposed by the detected integration. Create or link the matching Playit tunnel, then refresh." : undefined),
     hostname: suggestion.providerId === "tailscale" ? provider?.DNSName || provider?.hostname || null : null,
     IPv4: suggestion.providerId === "tailscale" ? provider?.IPv4 || null : null,
     IPv6: suggestion.providerId === "tailscale" ? provider?.IPv6 || null : null,
@@ -11515,7 +11515,7 @@ function createShareServerControls(instance, publicAddresses = [], reopen = () =
   if (!playitServices.length && !hasPublic) {
     section.append(
       createTextElement("h3", "Share over the internet"),
-      createTextElement("p", "Let friends outside your home join through Playit. AnxOS asks before sharing anything and only shares this game's port."),
+      createTextElement("p", "Let friends outside your home join through Playit. AnxHost asks before sharing anything and only shares this game's port."),
     );
     const start = document.createElement("button");
     start.type = "button";
@@ -11555,7 +11555,7 @@ function createShareServerControls(instance, publicAddresses = [], reopen = () =
     stop.addEventListener("click", async () => {
       const confirmed = await createSecurityConfirmation({
         title: `Stop sharing ${instance.displayName || instance.id}?`,
-        message: "AnxOS removes this server's sharing settings. A tunnel you created on playit.gg stays there until you delete it on playit.gg; delete it there too to fully close access.",
+        message: "AnxHost removes this server's sharing settings. A tunnel you created on playit.gg stays there until you delete it on playit.gg; delete it there too to fully close access.",
         confirmLabel: "Stop sharing",
       });
       if (!confirmed) return;
@@ -11697,7 +11697,7 @@ function openShareServerModal(instance = findInstance(), options) {
   const accessStateLoaded = isShareAccessStateLoaded();
   const checking = !accessStateLoaded && options?.accessRefreshed !== true && health.nodeState !== "disconnected";
   const described = checking
-    ? { status: health.status, tone: "planned", headline: "Checking whether friends can join...", nextStep: "AnxOS is reading this computer's sharing settings and Playit tunnels." }
+    ? { status: health.status, tone: "planned", headline: "Checking whether friends can join...", nextStep: "AnxHost is reading this computer's sharing settings and Playit tunnels." }
     : AnxShareHealth.describeShareHealth(health.status);
   healthSection.dataset.shareHealthStatus = health.status;
   healthSection.append(
@@ -11752,7 +11752,7 @@ function openShareServerModal(instance = findInstance(), options) {
   const diagnostics = document.createElement("details");
   diagnostics.className = "share-server-diagnostics";
   diagnostics.append(createTextElement("summary", "Friend can’t join?"));
-  diagnostics.append(createTextElement("p", "These are the raw checks AnxOS used. Access Health:"), healthGrid);
+  diagnostics.append(createTextElement("p", "These are the raw checks AnxHost used. Access Health:"), healthGrid);
   healthSection.append(nextStep, diagnostics);
   const list = document.createElement("div");
   list.className = "share-server-address-list";
@@ -11996,13 +11996,13 @@ async function runPublicAccessAction(action) {
         dependencyIds: [provider.dependencyId],
       },
       title: `Install ${provider.name}?`,
-      intro: `AnxOS will install ${provider.name} on ${requestContext.nodeLabel || requestContext.nodeId || "the selected node"} using the selected backend, then verify the dependency and refresh Sharing.`,
+      intro: `AnxHost will install ${provider.name} on ${requestContext.nodeLabel || requestContext.nodeId || "the selected node"} using the selected backend, then verify the dependency and refresh Sharing.`,
       confirmLabel: "Install",
       onConfirmed: () => refreshMarketplaceDownloads(),
     });
     if (prepared.status === "declined") return null;
     if (prepared.status === "manual") {
-      showToast(`${provider.name} needs a manual step on this computer before AnxOS can use it. Open Agent Control > Prepare Node for details.`, "warning");
+      showToast(`${provider.name} needs a manual step on this computer before AnxHost can use it. Open Agent Control > Prepare Node for details.`, "warning");
       return null;
     }
     const result = prepared.installResult || prepared.plan;
@@ -12066,8 +12066,8 @@ async function runPublicAccessAction(action) {
     const confirmed = await createSecurityConfirmation({
       title: risky ? "Apply firewall rule that affects management access?" : "Create Windows Firewall rule?",
       message: risky
-        ? `${previewResult.summary} AnxOS will watch the Agent after applying and automatically remove the rule if the Agent becomes unreachable.`
-        : `AnxOS will ask Windows to allow inbound ${previewResult.rule.protocol} traffic on port ${previewResult.rule.port} for ${provider?.name || "this provider"}. Administrator permission may be required.`,
+        ? `${previewResult.summary} AnxHost will watch the Agent after applying and automatically remove the rule if the Agent becomes unreachable.`
+        : `AnxHost will ask Windows to allow inbound ${previewResult.rule.protocol} traffic on port ${previewResult.rule.port} for ${provider?.name || "this provider"}. Administrator permission may be required.`,
       confirmLabel: risky ? "Apply With Rollback Guard" : "Create Rule",
       // A typed phrase makes this an elevated confirmation that cannot be
       // silently skipped by the destructive-action preference.
@@ -12098,11 +12098,11 @@ async function runPublicAccessAction(action) {
 function reportPublicAccessFirewallRollback(result = {}) {
   const rollback = result.rollback || {};
   if (rollback.status === "rolled-back") {
-    showToast(`The Agent became unreachable after applying the rule, so AnxOS removed it.${rollback.manualCommand ? ` Manual fallback: ${rollback.manualCommand}` : ""}`, "warning");
+    showToast(`The Agent became unreachable after applying the rule, so AnxHost removed it.${rollback.manualCommand ? ` Manual fallback: ${rollback.manualCommand}` : ""}`, "warning");
     return;
   }
   if (rollback.status === "rollback-failed") {
-    showToast(`AnxOS could not reach the Agent and could not remove the rule automatically. Run: ${rollback.manualCommand || "netsh advfirewall firewall delete rule name=\"...\""}`, "error");
+    showToast(`AnxHost could not reach the Agent and could not remove the rule automatically. Run: ${rollback.manualCommand || "netsh advfirewall firewall delete rule name=\"...\""}`, "error");
     return;
   }
   showToast("Windows Firewall rule created.");
@@ -12461,7 +12461,7 @@ function getDockerWorkspaceState(snapshot = latestDockerSnapshot, error = null) 
       "agent-unavailable": ["Docker is unavailable", "The selected system is offline or unreachable. Reconnect it, then try again.", "System offline"],
       "not-installed": ["Docker is not installed on this system.", "Install Docker to create and manage containers here.", "Not installed"],
       "daemon-stopped": ["Docker is installed but stopped.", "Start Docker on this system, then refresh this page.", "Stopped"],
-      "permission-denied": ["Docker permission denied", "AnxOS cannot access Docker on this node. Check Docker group or administrator permissions.", "Permission denied"],
+      "permission-denied": ["Docker permission denied", "AnxHost cannot access Docker on this node. Check Docker group or administrator permissions.", "Permission denied"],
       timeout: ["Docker request timed out", "Docker did not respond before the request timed out.", "Timed out"],
       error: ["Docker unavailable", error.message || "Docker data could not be loaded.", "Unavailable"],
     }[reason];
@@ -13693,8 +13693,8 @@ function getInstanceServiceUrl(instance = null) {
 // between the instances page and the dashboard (V2-B app slice).
 function getInstanceOwnershipLabel(instance = null) {
   if (isServiceManagedInstance(instance)) return "Managed by systemd";
-  const ownershipLabels = { "anxos-managed": "AnxOS-managed", "imported": "Imported", "external": "External" };
-  return ownershipLabels[instance?.ownership] || (instance?.ownership ? String(instance.ownership) : "AnxOS-managed");
+  const ownershipLabels = { "anxos-managed": "AnxHost-managed", "imported": "Imported", "external": "External" };
+  return ownershipLabels[instance?.ownership] || (instance?.ownership ? String(instance.ownership) : "AnxHost-managed");
 }
 
 function formatInstanceAddress(instance) {
@@ -14050,13 +14050,13 @@ const serviceManagedLockedControls = new Set();
 // First matching selector wins; anything else gets SERVICE_MANAGED_LOCK_REASON. The same
 // table feeds the "Why are some actions unavailable?" list so the two never disagree.
 const SERVICE_MANAGED_LOCK_REASONS = Object.freeze([
-  { selector: '[data-instance-action="force-kill"]', label: "Force kill", reason: "Force kill is unavailable: AnxOS does not own this process, so it will not signal it. Use Restart or Safe Restart; systemd stops the service." },
-  { selector: '[data-instance-action="delete"]', label: "Delete", reason: "Delete is unavailable: this is an operator-defined system service. Use Forget to remove only AnxOS's record of it." },
+  { selector: '[data-instance-action="force-kill"]', label: "Force kill", reason: "Force kill is unavailable: AnxHost does not own this process, so it will not signal it. Use Restart or Safe Restart; systemd stops the service." },
+  { selector: '[data-instance-action="delete"]', label: "Delete", reason: "Delete is unavailable: this is an operator-defined system service. Use Forget to remove only AnxHost's record of it." },
   { selector: '[data-instance-action="duplicate"]', label: "Duplicate", reason: "Duplicate is unavailable: a second copy could start a second FXServer on the same ports." },
-  { selector: '[data-instance-backup-action]', label: "Backups", reason: "Backups are unavailable: the service's files live outside the Agent's instance folder, so AnxOS cannot back them up." },
+  { selector: '[data-instance-backup-action]', label: "Backups", reason: "Backups are unavailable: the service's files live outside the Agent's instance folder, so AnxHost cannot back them up." },
   { selector: '[data-restart-schedule-action]', label: "Scheduled restarts", reason: "Scheduled restarts are unavailable: they warn players through the server console, which is not exposed for this service. Use Safe Restart manually." },
-  { selector: "[data-instance-console-command], [data-instance-console-form] button", label: "Console commands", reason: "Console commands are unavailable: the service has no console AnxOS can write to. The journal is shown read-only." },
-  { selector: '[data-instance-action="update-steam"], [data-instance-action="repair-neoforge-runtime"], [data-instance-action="reset-runtime"]', label: "Runtime updates and repair", reason: "Runtime updates and repair are unavailable: AnxOS does not manage this service's files or runtime." },
+  { selector: "[data-instance-console-command], [data-instance-console-form] button", label: "Console commands", reason: "Console commands are unavailable: the service has no console AnxHost can write to. The journal is shown read-only." },
+  { selector: '[data-instance-action="update-steam"], [data-instance-action="repair-neoforge-runtime"], [data-instance-action="reset-runtime"]', label: "Runtime updates and repair", reason: "Runtime updates and repair are unavailable: AnxHost does not manage this service's files or runtime." },
   { selector: '[data-instance-action="rename"], [data-instance-action="transfer-workload"], [data-instance-action="open-folder"]', label: "Rename, transfer and open folder", reason: "Unavailable: the instance record is operator-authored and read-only to the Agent." },
   { selector: '[data-instance-file-action]', label: "File changes", reason: "File changes are unavailable: the Agent cannot write the service's real files." },
 ]);
@@ -15686,7 +15686,7 @@ function populateInstanceConfigForm(instance) {
 function populateMinecraftProperties(properties = {}) {
   const defaults = {
     "server-port": "25565",
-    motd: "AnxOS Minecraft Server",
+    motd: "AnxHost Minecraft Server",
     "max-players": "20",
     difficulty: "easy",
     gamemode: "survival",
@@ -17181,7 +17181,7 @@ function updateInstanceActionButtons() {
         : !targetAvailable
           ? "Register another Agent node before transferring a workload."
             : locked
-              ? "Unlock AnxOS to transfer workloads between nodes."
+              ? "Unlock AnxHost to transfer workloads between nodes."
               : "Preview, then transfer this workload to another Agent node.";
     // Chromium does not show a `title` tooltip on a disabled control, and this
     // button is disabled in most states, so the reason is mirrored into the
@@ -17382,7 +17382,7 @@ function buildInstanceStatePill(instance) {
       note.className = "instance-state__note";
       note.textContent = "Last known";
       pill.replaceChildren(note, document.createTextNode(state));
-      pill.title = "This server's computer is not connected. This is the last state AnxOS saw.";
+      pill.title = "This server's computer is not connected. This is the last state AnxHost saw.";
       return pill;
     }
   }
@@ -18276,7 +18276,7 @@ function renderInstancesSnapshot(snapshot) {
   updateTitlebar();
 }
 
-function renderInstancesUnavailable(message = "AnxOS could not load installed servers for the selected system.") {
+function renderInstancesUnavailable(message = "AnxHost could not load installed servers for the selected system.") {
   latestInstancesSnapshot = null;
   latestInstancesSnapshotAt = 0;
   latestInstancesSnapshotNodeId = null;
@@ -19305,18 +19305,26 @@ function getFilteredMarketplaceTemplates() {
     // persisted star list instead of a template category.
     const matchesCategory = marketplaceActiveCategory === "All"
       || (marketplaceActiveCategory === "Favorites" ? isMarketplaceFavorite(template) : template.category === marketplaceActiveCategory);
-    const haystack = [
-      template.displayName,
-      template.name,
-      template.description,
-      template.author,
-      template.version,
-      template.category,
-      template.id,
-      Array.isArray(template.tags) ? template.tags.join(" ") : "",
-    ].filter(Boolean).join(" ").toLowerCase();
-    return matchesCategory && (!query || haystack.includes(query));
+    return matchesCategory && marketplaceTemplateMatchesQuery(template, query);
   });
+}
+
+// Every word of the query must appear somewhere on the card, in any order, so
+// "paper minecraft" finds Minecraft Paper. A one-word query is a substring match.
+function marketplaceTemplateMatchesQuery(template, query) {
+  const words = String(query || "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const haystack = [
+    template.displayName,
+    template.name,
+    template.description,
+    template.author,
+    template.version,
+    template.category,
+    template.id,
+    Array.isArray(template.tags) ? template.tags.join(" ") : "",
+  ].filter(Boolean).join(" ").toLowerCase();
+  return words.every((word) => haystack.includes(word));
 }
 
 function isMarketplaceProviderBrowserActive() {
@@ -19664,7 +19672,7 @@ function formatMarketplaceProviderLabel(template) {
   const provider = getMarketplaceProvider(template);
   if (provider === "modrinth") return "Modrinth";
   if (provider === "curseforge") return "CurseForge";
-  return "AnxOS";
+  return "AnxHost";
 }
 
 function formatMarketplaceLoaderLabel(template) {
@@ -20234,7 +20242,7 @@ function getMarketplaceCompatibilityItems(template = {}) {
   if (Array.isArray(template.docker?.volumes) && template.docker.volumes.length) {
     items.push({ label: "Kept data", value: template.docker.volumes.map((volume) => volume.label || volume.name).join(", "), state: "ready" });
   }
-  if (template.verified === true) items.push({ label: "Verification", value: "Verified AnxOS template metadata", state: "ready" });
+  if (template.verified === true) items.push({ label: "Verification", value: "Verified AnxHost template metadata", state: "ready" });
   if (template.experimental === true) items.push({ label: "Release channel", value: "Experimental", state: "warning" });
   return items;
 }
@@ -20375,7 +20383,7 @@ function createPublisherTrustNotice(notice = null, className = "publisher-trust-
   if (notice.body) section.append(createTextElement("p", notice.body));
   if (notice.action) section.append(createTextElement("small", notice.action));
   if (notice.installBlocked) {
-    const blocked = createTextElement("p", "AnxOS refuses to install this package because the integrity check failed.");
+    const blocked = createTextElement("p", "AnxHost refuses to install this package because the integrity check failed.");
     blocked.className = "publisher-trust-notice__blocked";
     section.append(blocked);
   }
@@ -20733,7 +20741,7 @@ function classifyMarketplaceServerPackCapability(source = {}) {
     return {
       state: "unknown",
       label: "Compatibility Unknown",
-      detail: "CurseForge server-pack metadata is incomplete. AnxOS will verify before any Agent installation work.",
+      detail: "CurseForge server-pack metadata is incomplete. AnxHost will verify before any Agent installation work.",
       installable: true,
     };
   }
@@ -20747,7 +20755,7 @@ function classifyMarketplaceServerPackCapability(source = {}) {
     }
     return { state: "unknown", label: "Compatibility Unknown", detail: "Modrinth server-side metadata is unavailable.", installable: true };
   }
-  return { state: "available", label: "Server-Compatible", detail: "AnxOS template includes server install metadata.", installable: true };
+  return { state: "available", label: "Server-Compatible", detail: "AnxHost template includes server install metadata.", installable: true };
 }
 
 function buildProviderMarketplaceTemplate(project = {}) {
@@ -21270,9 +21278,9 @@ function describeCreateServerDependencyState(template) {
   if (state.status === "ready") return { value: `${state.names}: already installed`, tone: "ready" };
   if (state.status === "missing") {
     const missingNames = AnxDependencyPreparation.joinNames(state.missing.map(formatCreateServerDependencyName));
-    return { value: `${missingNames}: AnxOS will offer to install it when you click Create server`, tone: "" };
+    return { value: `${missingNames}: AnxHost will offer to install it when you click Create server`, tone: "" };
   }
-  return { value: `Needs ${state.names}. AnxOS checks this when you click Create server.`, tone: "" };
+  return { value: `Needs ${state.names}. AnxHost checks this when you click Create server.`, tone: "" };
 }
 
 function renderCreateServerPackageSummary(template) {
@@ -21798,7 +21806,7 @@ function openMarketplaceWizard(templateId, { source = "" } = {}) {
       return;
     }
     if (isMinecraftMarketplaceTemplate(template) && serverTypeField?.dataset?.runtimeDetected !== "true") {
-      setMarketplaceMessage("AnxOS couldn't tell which server type this needs, so Vanilla is selected. If this is a modpack, pick its type under Advanced options.", "warning");
+      setMarketplaceMessage("AnxHost couldn't tell which server type this needs, so Vanilla is selected. If this is a modpack, pick its type under Advanced options.", "warning");
       openCreateServerAdvancedOptions();
     } else {
       setMarketplaceMessage("Give your server a name, then click Create server.");
@@ -22245,7 +22253,7 @@ function buildMarketplaceManualRecoveryState(template, manualDownload = {}, opti
     title: "Manual Download Required",
     subtitle: `Waiting for a required file from ${providerName}.`,
     body: "A required modpack file needs manual download.",
-    reason: manualDownload.reason || manualDownload.suggestion || "This provider does not allow AnxOS to download one required file automatically.",
+    reason: manualDownload.reason || manualDownload.suggestion || "This provider does not allow AnxHost to download one required file automatically.",
     fileText: manualDownload.fileName || "Unknown file",
     modText: manualDownload.projectName || "Unknown mod",
     versionText: manualDownload.versionId || "Unknown version",
@@ -22503,7 +22511,7 @@ function buildDependencyInstallPanel(download = {}) {
 
   const message = document.createElement("p");
   message.className = "dependency-install-panel__message";
-  message.textContent = currentJob?.message || download.body || "Dependency installation is managed inside AnxOS.";
+  message.textContent = currentJob?.message || download.body || "Dependency installation is managed inside AnxHost.";
 
   panel.append(heading, metrics, message);
   return panel;
@@ -22550,7 +22558,7 @@ function getDownloadProviderLabel(download = {}) {
   if (/curseforge/i.test(provider)) return "CurseForge";
   if (/modrinth/i.test(provider)) return "Modrinth";
   if (/steam/i.test(provider) || /steamcmd/i.test(download.installerType || "")) return "SteamCMD";
-  if (isDependencyDownload(download)) return "AnxOS";
+  if (isDependencyDownload(download)) return "AnxHost";
   return provider || "Marketplace";
 }
 
@@ -23549,7 +23557,7 @@ function getBackupErrorMessage(error, fallback = "Backup operation failed.") {
     BACKUP_NOT_FOUND: "This backup is no longer available. Refresh the backup list and try again.",
     WORLD_PATH_NOT_FOUND: "This server has no world yet, so there is nothing to back up as a world. Start it once to create the world, or back up the whole server.",
     RESTORE_INSTANCE_STOP_FAILED: "The server could not be stopped safely, so no files were replaced.",
-    RESTORE_ROLLBACK_FAILED: "Restore failed and AnxOS could not complete the automatic rollback. Review diagnostics before starting this server.",
+    RESTORE_ROLLBACK_FAILED: "Restore failed and AnxHost could not complete the automatic rollback. Review diagnostics before starting this server.",
   };
   return messages[code] || getFriendlyErrorMessage(error, fallback);
 }
@@ -23564,7 +23572,7 @@ async function restoreSelectedBackup(backupOverride = null) {
   const previewMessage = await getRestorePreviewMessage(selected, requestContext);
   if (!(await confirmDestructiveAction({
     title: "Restore this backup?",
-    message: previewMessage || `${selected.name || selected.id} will replace the current instance data. Files created or changed since this backup was taken are overwritten. The instance may be stopped first, and AnxOS will create a safety snapshot before replacing files.`,
+    message: previewMessage || `${selected.name || selected.id} will replace the current instance data. Files created or changed since this backup was taken are overwritten. The instance may be stopped first, and AnxHost will create a safety snapshot before replacing files.`,
     confirmLabel: "Restore Backup",
   }))) {
     return;
@@ -23658,7 +23666,7 @@ async function deleteSelectedBackup() {
   }
   if (!(await confirmDestructiveAction({
     title: "Delete this backup?",
-    message: `${selected.name || selected.id} will be removed from backup history. This cannot be undone from AnxOS.`,
+    message: `${selected.name || selected.id} will be removed from backup history. This cannot be undone from AnxHost.`,
     confirmLabel: "Delete Backup",
   }))) {
     return;
@@ -23733,7 +23741,7 @@ async function configureBackupSchedule(instanceId) {
   }
   const interval = await promptBackupText({
     title: "Backup Schedule",
-    message: "How often should AnxOS run this backup?",
+    message: "How often should AnxHost run this backup?",
     label: "Interval hours",
     initialValue: "24",
     confirmLabel: "Continue",
@@ -24580,7 +24588,7 @@ function showMarketplaceServiceCredentials(template, credentials = []) {
     header.append(
       createTextElement("p", template?.displayName || "Service", "eyebrow"),
       createTextElement("h2", entries.length === 1 ? "Save this password" : "Save these passwords"),
-      createTextElement("p", "AnxOS created them for this install and does not keep a copy. Save them somewhere safe before you close this window."),
+      createTextElement("p", "AnxHost created them for this install and does not keep a copy. Save them somewhere safe before you close this window."),
     );
     dialog.append(header);
     for (const entry of entries) {
@@ -24740,7 +24748,7 @@ async function prepareNodeDependencies({
   const message = [
     intro,
     AnxDependencyPreparation.formatPlan(plan),
-    "AnxOS uses the trusted dependency installer, shows progress in Activity, and checks that everything works afterwards.",
+    "AnxHost uses the trusted dependency installer, shows progress in Activity, and checks that everything works afterwards.",
   ].filter(Boolean).join("\n\n");
   if (!(await createSecurityConfirmation({ title, message, confirmLabel }))) {
     return { status: "declined", plan, installResult: null };
@@ -24779,7 +24787,7 @@ async function maybePrepareMarketplaceDependencies(normalizedError, template, op
       nodeId: requestContext.nodeId,
     },
     title: `Install ${friendlyNames}?`,
-    intro: `${template.displayName || template.id} needs ${friendlyNames} on ${requestContext.nodeLabel || "this computer"}. AnxOS can install it now and then continue creating your server.`,
+    intro: `${template.displayName || template.id} needs ${friendlyNames} on ${requestContext.nodeLabel || "this computer"}. AnxHost can install it now and then continue creating your server.`,
     confirmLabel: "Install and continue",
     onConfirmed: () => {
       setMarketplaceInstallState("Preparing", "running");
@@ -25447,7 +25455,7 @@ function createWorkloadTransferTargetDialog({ sourceNode, targetNodes, instanceL
     header.append(
       createTextElement("p", "Workload transfer", "eyebrow"),
       createTextElement("h2", `Transfer ${instanceLabel}`),
-      createTextElement("p", `The source workload stays on ${sourceNode?.displayName || "the source node"}. AnxOS runs a read-only restore preview on the target first, but that preview still creates a source backup, imports an archive on the target, and registers a temporary placeholder instance there. The destructive restore only runs after you confirm it.`),
+      createTextElement("p", `The source workload stays on ${sourceNode?.displayName || "the source node"}. AnxHost runs a read-only restore preview on the target first, but that preview still creates a source backup, imports an archive on the target, and registers a temporary placeholder instance there. The destructive restore only runs after you confirm it.`),
     );
     const targetField = document.createElement("label");
     targetField.className = "settings-field";
@@ -25617,9 +25625,9 @@ async function openWorkloadTransfer(selectedInstance = findInstance()) {
     return;
   }
   if (workloadTransferInFlight || instanceActionRequestInFlight || instancesRequestInFlight) return;
-  if (blockProtectedAction("Unlock AnxOS to transfer workloads between nodes.")) return;
+  if (blockProtectedAction("Unlock AnxHost to transfer workloads between nodes.")) return;
   if (securityState?.localOwnerAuthenticated !== true) {
-    showToast("Unlock AnxOS to transfer workloads between nodes.", "warning");
+    showToast("Unlock AnxHost to transfer workloads between nodes.", "warning");
     return;
   }
   const sourceNode = getSelectedNode();
@@ -26026,11 +26034,11 @@ async function runInstanceAction(actionName, options = {}) {
   if (actionName === "delete") {
     const linkedAccessServices = getInstanceAccessServices(selectedInstance);
     const accessWarning = linkedAccessServices.length
-      ? ` This instance has ${linkedAccessServices.length} linked access service${linkedAccessServices.length === 1 ? "" : "s"}: ${linkedAccessServices.map(getInstanceAccessBadgeLabel).join(", ")}. AnxOS will remove supported access records after deletion and report any cleanup failures.`
+      ? ` This instance has ${linkedAccessServices.length} linked access service${linkedAccessServices.length === 1 ? "" : "s"}: ${linkedAccessServices.map(getInstanceAccessBadgeLabel).join(", ")}. AnxHost will remove supported access records after deletion and report any cleanup failures.`
       : "";
     if (!(await confirmDestructiveAction({
       title: "Delete this server?",
-      message: `Delete removes ${label} from AnxOS and permanently deletes all of its instance data from disk, including saves and configuration. This cannot be undone. Backups created through the Backups page are kept in the backup root. To keep the instance data on disk, use Forget instead.${accessWarning}`,
+      message: `Delete removes ${label} from AnxHost and permanently deletes all of its instance data from disk, including saves and configuration. This cannot be undone. Backups created through the Backups page are kept in the backup root. To keep the instance data on disk, use Forget instead.${accessWarning}`,
       confirmLabel: "Delete (removes all instance data)",
     }))) {
       showToast("Delete canceled.");
@@ -26039,7 +26047,7 @@ async function runInstanceAction(actionName, options = {}) {
   } else if (actionName === "forget") {
     if (!(await confirmDestructiveAction({
       title: "Forget this server?",
-      message: `Forget removes ${label} from AnxOS Control Center, but keeps all of its data on disk. The instance folder is not deleted. Use Delete instead to remove the data as well.`,
+      message: `Forget removes ${label} from AnxHost Control Center, but keeps all of its data on disk. The instance folder is not deleted. Use Delete instead to remove the data as well.`,
       confirmLabel: "Forget (keeps data on disk)",
     }))) {
       showToast("Forget canceled.");
@@ -26230,7 +26238,7 @@ async function runInstanceAction(actionName, options = {}) {
       if (actionName === "delete" && isInstanceRunningError(error)) {
         const stopThenDelete = await confirmDestructiveAction({
           title: "Stop and delete this running server?",
-          message: `${label} is still running. AnxOS will stop it first, then delete it after it stops. This cannot be undone.`,
+          message: `${label} is still running. AnxHost will stop it first, then delete it after it stops. This cannot be undone.`,
           confirmLabel: "Stop and Delete",
         });
         if (stopThenDelete && isNodeActionStillCurrent(requestContext)) {
@@ -26260,7 +26268,7 @@ async function runInstanceAction(actionName, options = {}) {
         }
       } else if (actionName === "delete" && desktopApiState.api.instances.forget && await confirmDestructiveAction({
         title: "Remove server record only?",
-        message: `AnxOS could not delete all files for ${label}. Remove the saved instance record from AnxOS Control Center anyway? Files may remain on disk.`,
+        message: `AnxHost could not delete all files for ${label}. Remove the saved instance record from AnxHost Control Center anyway? Files may remain on disk.`,
         confirmLabel: "Forget Server",
       })) {
         try {
@@ -27138,7 +27146,7 @@ function openFilesContextMenu(x, y, entry = getSelectedFileEntry(latestFilesList
       action: () => deleteRemoteEntry(),
       disabled: !hasEntry || !canMutate || isStorageRoot,
       reason: isStorageRoot
-        ? "Configured storage roots cannot be deleted from AnxOS."
+        ? "Configured storage roots cannot be deleted from AnxHost."
         : (canMutate ? "Select an item first." : "A file operation is already running."),
     },
     { label: "Upload Here", action: () => uploadRemoteFile(), disabled: !canMutate, reason: "Connect a writable filesystem first." },
@@ -27441,11 +27449,11 @@ function redactOperationText(value) {
   return String(value ?? "")
     .replace(
       /\b(?:SECURE_SESSION_DECRYPT_FAILED|SECURE_SESSION_CORRUPT)\b(?::\s*Encrypted session state could not be decrypted and was preserved for recovery\.?)?/gi,
-      "Your saved session could not be restored. Please unlock AnxOS again.",
+      "Your saved session could not be restored. Please unlock AnxHost again.",
     )
     .replace(
       /\bNODE_CREDENTIAL_DECRYPT_FAILED\b(?::\s*Saved node credentials could not be decrypted on this device\.?)?/gi,
-      "Saved node credentials could not be restored. Unlock AnxOS to continue.",
+      "Saved node credentials could not be restored. Unlock AnxHost to continue.",
     )
     .replace(
       /\bNODE_CREDENTIAL_MISSING\b(?::\s*[^.\n]*(?:\.)?)?/gi,
@@ -27453,7 +27461,7 @@ function redactOperationText(value) {
     )
     .replace(
       /\b(?:LOCAL_AUTHENTICATION_REQUIRED|AUTH_UNLOCK_REQUIRED)\b(?::\s*[^.\n]*(?:\.)?)?/gi,
-      "Unlock AnxOS to continue.",
+      "Unlock AnxHost to continue.",
     )
     .replace(/(Bearer|token|password|api[_-]?key|secret)=?\s*[^\s,;]+/gi, "$1=[redacted]")
     .replace(/(Authorization:\s*)[^\n]+/gi, "$1[redacted]")
@@ -27598,7 +27606,7 @@ function loadOperationHistory({ recoverInterrupted = true } = {}) {
       };
       if (recoverInterrupted && ["queued", "running", "waiting"].includes(operation.status)) {
         operation.status = "failed";
-        operation.step = "Interrupted when AnxOS closed. Retry from the originating workspace.";
+        operation.step = "Interrupted when AnxHost closed. Retry from the originating workspace.";
         operation.error = operation.step;
         operation.completedAt = operation.updatedAt;
         appendOperationLog(operation, operation.step);
@@ -29308,7 +29316,7 @@ function renderMaintenanceCenter() {
     const title = document.createElement("strong");
     title.textContent = maintenanceState.scanning ? "Scanning storage" : "No maintenance scan yet";
     const message = document.createElement("span");
-    message.textContent = maintenanceState.scanning ? "Measuring trusted AnxOS cache locations." : "Run Scan Storage to find AnxOS-owned cache, diagnostics, and temporary files that are safe to review.";
+    message.textContent = maintenanceState.scanning ? "Measuring trusted AnxHost cache locations." : "Run Scan Storage to find AnxHost-owned cache, diagnostics, and temporary files that are safe to review.";
     empty.append(title, message);
     maintenanceList.append(empty);
     renderMaintenanceDetail();
@@ -29654,7 +29662,7 @@ function getGlobalSearchProviders() {
           { id: "recommendations", label: "Security recommendations", description: `${(dashboard.recommendations || []).length} deterministic recommendations`, section: ".settings-section--security-recommendations" },
           { id: "events", label: "Security events", description: `${(dashboard.events || []).length} redacted audit events loaded`, section: ".settings-section--security-events" },
           { id: "permissions", label: "Roles and permissions", description: securityState.user?.role || "Role unavailable", section: ".settings-section--security-permissions" },
-          { id: "account", label: "Account protection", description: accountState.authenticated ? "AnxOS account signed in" : "No account session", section: ".settings-section--security-account" },
+          { id: "account", label: "Account protection", description: accountState.authenticated ? "AnxHost account signed in" : "No account session", section: ".settings-section--security-account" },
           ...(dashboard.sessions || []).map((session, index) => ({
             id: `session:${index}`,
             label: session.current ? "Current session" : session.deviceName || "Remembered session",
@@ -30586,8 +30594,8 @@ function getCommandRegistry() {
     }),
     createCommand({
       id: "account.signIn",
-      title: "Sign In with AnxOS",
-      description: "Start the existing AnxOS device-login flow.",
+      title: "Sign In with AnxHost",
+      description: "Start the existing AnxHost device-login flow.",
       category: "Account",
       enabled: () => desktopApiState.hasAccount && !accountState.authenticated && !accountStartInFlight,
       disabledReason: () => accountState.authenticated ? "You are already signed in." : "Account sign-in is unavailable.",
@@ -30595,18 +30603,18 @@ function getCommandRegistry() {
     }),
     createCommand({
       id: "account.signOut",
-      title: "Sign Out of AnxOS Account",
-      description: "Sign out of the current AnxOS account session.",
+      title: "Sign Out of AnxHost Account",
+      description: "Sign out of the current AnxHost account session.",
       category: "Account",
       enabled: () => desktopApiState.hasAccount && accountState.authenticated,
       disabledReason: () => accountState.authenticated ? "Account sign-out is unavailable." : "You are not signed in.",
-      confirm: { title: "Sign out of AnxOS account?", message: "Cloud and remote account features will be disconnected on this device.", confirmLabel: "Sign Out" },
+      confirm: { title: "Sign out of AnxHost account?", message: "Cloud and remote account features will be disconnected on this device.", confirmLabel: "Sign Out" },
       execute: () => logoutAnxOsAccount(),
     }),
     createCommand({
       id: "account.refresh",
       title: "Refresh Account State",
-      description: "Reload AnxOS account status.",
+      description: "Reload AnxHost account status.",
       category: "Account",
       enabled: () => desktopApiState.hasAccount,
       disabledReason: () => "Account service is unavailable.",
@@ -31363,7 +31371,7 @@ async function deleteSelectedStorageConnection() {
   if (!desktopApiState.hasFiles || !selected || selected.id === "local") return;
   if (!(await confirmDestructiveAction({
     title: "Delete storage connection?",
-    message: `${storageConnectionLabel(selected)} will be removed from AnxOS. Files on the remote system are not deleted.`,
+    message: `${storageConnectionLabel(selected)} will be removed from AnxHost. Files on the remote system are not deleted.`,
     confirmLabel: "Delete Connection",
   }))) return;
   try {
@@ -33158,7 +33166,7 @@ async function runDockerComposeUiAction(action) {
       title: destructive ? "Remove Compose project containers?" : "Run Compose project?",
       message: destructive
         ? "Compose down removes project containers. Removing volumes requires a separate explicit backend flag and is not enabled here."
-        : "AnxOS will validate docker compose config before starting the project. If the project uses privileged mode, host mounts, host namespaces, or engine-socket mounts, this confirmation also authorizes them.",
+        : "AnxHost will validate docker compose config before starting the project. If the project uses privileged mode, host mounts, host namespaces, or engine-socket mounts, this confirmation also authorizes them.",
       confirmLabel: destructive ? "Remove" : "Run",
     });
     if (!confirmed) return;
@@ -34533,7 +34541,7 @@ async function deleteRemoteEntry() {
   }
 
   if (isConfiguredStorageRootPath(entry.path)) {
-    showToast("Configured storage roots cannot be deleted from AnxOS. Remove or change the storage root in Agent configuration instead.", "warning");
+    showToast("Configured storage roots cannot be deleted from AnxHost. Remove or change the storage root in Agent configuration instead.", "warning");
     return;
   }
 
@@ -34559,7 +34567,7 @@ async function deleteRemoteEntry() {
     confirmDangerous = true;
   } else if (!(await confirmDestructiveAction({
     title: `Delete ${entry.name}?`,
-    message: `Type: ${formatFileType(entry)}. Size: ${entry.isDirectory ? "Folder size not measured" : formatBytes(entry.size)}. Path: ${entry.path}. This is permanent in AnxOS unless the backing filesystem provides its own recovery.`,
+    message: `Type: ${formatFileType(entry)}. Size: ${entry.isDirectory ? "Folder size not measured" : formatBytes(entry.size)}. Path: ${entry.path}. This is permanent in AnxHost unless the backing filesystem provides its own recovery.`,
     confirmLabel: "Delete",
   }))) {
     return;
@@ -36782,7 +36790,7 @@ function openSshKeySetupDialog(profile) {
   header.append(
     createTextElement("p", "SSH", "eyebrow"),
     createTextElement("h2", `Set up key sign-in for ${profile.displayName || profile.id}`),
-    createTextElement("p", `AnxOS creates a new Ed25519 key on this PC (readable only by your Windows account), adds it to ${profile.username || "this account"}'s authorized_keys on ${profile.host}, and signs in with it to prove it works. Then it saves a key profile for this computer, which Agent Control and updates can use.`),
+    createTextElement("p", `AnxHost creates a new Ed25519 key on this PC (readable only by your Windows account), adds it to ${profile.username || "this account"}'s authorized_keys on ${profile.host}, and signs in with it to prove it works. Then it saves a key profile for this computer, which Agent Control and updates can use.`),
   );
   const details = document.createElement("dl");
   details.className = "app-modal__details";
@@ -36804,7 +36812,7 @@ function openSshKeySetupDialog(profile) {
   };
   form.append(
     field("SSH password (used once, not saved)", "password"),
-    field("Key passphrase (optional, recommended)", "passphrase", "With a passphrase, load the key once with ssh-add; Windows keeps it in the OpenSSH agent. AnxOS never stores it. Leave empty for a key protected only by your Windows account."),
+    field("Key passphrase (optional, recommended)", "passphrase", "With a passphrase, load the key once with ssh-add; Windows keeps it in the OpenSSH agent. AnxHost never stores it. Leave empty for a key protected only by your Windows account."),
     field("Repeat the passphrase", "passphraseConfirm"),
   );
   const status = createTextElement("p", "", "platform-note");
@@ -37599,7 +37607,7 @@ function setAccountMessage(message = "") {
   }
 }
 
-function assertAccountResultOk(result, fallback = "AnxOS account request failed.") {
+function assertAccountResultOk(result, fallback = "AnxHost account request failed.") {
   if (result?.ok === false) {
     const error = new Error(result.error?.message || result.message || fallback);
     error.code = result.error?.code || "ACCOUNT_REQUEST_FAILED";
@@ -37634,7 +37642,7 @@ function renderAccountState() {
   }
   if (accountCurrentUser) {
     accountCurrentUser.value = signedIn
-      ? (account.displayName || account.username || account.email || "AnxOS Account")
+      ? (account.displayName || account.username || account.email || "AnxHost Account")
       : "";
   }
   accountFields.forEach((field) => {
@@ -37677,18 +37685,18 @@ function renderAccountState() {
       : `Opening your browser... Code ${pending.userCode}.${urlText} ${remainingText}`);
   } else if (signedIn) {
     setAccountMessage(ownerAccount
-      ? `Signed in as ${account.displayName || account.username || "AnxOS Account"} with Owner access.`
-      : `Signed in as ${account.displayName || account.username || "AnxOS Account"}.`);
+      ? `Signed in as ${account.displayName || account.username || "AnxHost Account"} with Owner access.`
+      : `Signed in as ${account.displayName || account.username || "AnxHost Account"}.`);
   } else if (restoring) {
-    setAccountMessage("Restoring your saved AnxOS account session...");
+    setAccountMessage("Restoring your saved AnxHost account session...");
   } else if (offline) {
-    setAccountMessage(accountState.message || "Saved account session is offline. AnxOS will retry without clearing your credentials.");
+    setAccountMessage(accountState.message || "Saved account session is offline. AnxHost will retry without clearing your credentials.");
   } else if (expired) {
-    setAccountMessage(accountState.message || "Your AnxOS account session expired. Sign in again to use cloud and remote features.");
+    setAccountMessage(accountState.message || "Your AnxHost account session expired. Sign in again to use cloud and remote features.");
   } else if (accountState.configError) {
     setAccountMessage(accountState.message || accountState.configError);
   } else if (accountState.configured === false) {
-    setAccountMessage("Using local device mode. An AnxOS account is optional and only needed for cloud and remote features.");
+    setAccountMessage("Using local device mode. An AnxHost account is optional and only needed for cloud and remote features.");
   } else {
     setAccountMessage("Sign in on the AnxHost website to connect this device.");
   }
@@ -37719,7 +37727,7 @@ async function refreshAccountState(options = {}) {
     const restoreMethod = options.restore !== false && typeof desktopApiState.api.account.restore === "function"
       ? desktopApiState.api.account.restore
       : desktopApiState.api.account.getStatus;
-    const nextState = assertAccountResultOk(await restoreMethod(), "AnxOS account status unavailable.");
+    const nextState = assertAccountResultOk(await restoreMethod(), "AnxHost account status unavailable.");
     if (generation !== accountRefreshGeneration) return;
     accountState = nextState;
     if ((accountState.sessionStatus === "expired" || accountState.sessionStatus === "refreshable") && accountState.configured && typeof desktopApiState.api.account.refresh === "function") {
@@ -37738,7 +37746,7 @@ async function refreshAccountState(options = {}) {
     }
   } catch (error) {
     if (generation !== accountRefreshGeneration) return;
-    const message = normalizeIpcErrorMessage(error, "AnxOS account configuration could not be loaded.");
+    const message = normalizeIpcErrorMessage(error, "AnxHost account configuration could not be loaded.");
     accountState = {
       authenticated: false,
       account: null,
@@ -37780,7 +37788,7 @@ function startAccountPolling(intervalMs = 3000) {
       return;
     }
     try {
-      accountState = assertAccountResultOk(await desktopApiState.api.account.checkDeviceLogin(), "AnxOS account sign-in failed.");
+      accountState = assertAccountResultOk(await desktopApiState.api.account.checkDeviceLogin(), "AnxHost account sign-in failed.");
       renderAccountState();
       if (accountState.authenticated || ["expired", "idle", "denied", "cancelled"].includes(accountState.state)) {
         stopAccountPolling();
@@ -37789,7 +37797,7 @@ function startAccountPolling(intervalMs = 3000) {
           setLocalSetupComplete();
           setSecurityGateVisible(false);
           renderLocalSetupState();
-          showToast("Signed in with AnxOS.");
+          showToast("Signed in with AnxHost.");
         }
         if (accountState.message) {
           setAccountMessage(accountState.message);
@@ -37802,7 +37810,7 @@ function startAccountPolling(intervalMs = 3000) {
       }
     } catch (error) {
       stopAccountPolling();
-      const message = normalizeIpcErrorMessage(error, "AnxOS account sign-in failed.");
+      const message = normalizeIpcErrorMessage(error, "AnxHost account sign-in failed.");
       setAccountMessage(message);
       showToast(message);
     }
@@ -37822,7 +37830,7 @@ async function startAnxOsAccountLogin() {
   const desktopApiState = getDesktopApiState();
   const now = Date.now();
   if (!desktopApiState.hasAccount) {
-    showToast("AnxOS account sign-in is not available in this build.");
+    showToast("AnxHost account sign-in is not available in this build.");
     return;
   }
   if (accountStartInFlight || (!accountState.authenticated && now < accountStartRetryAfter)) {
@@ -37836,20 +37844,20 @@ async function startAnxOsAccountLogin() {
   accountRefreshGeneration += 1;
   renderAccountState();
   try {
-    accountState = assertAccountResultOk(await desktopApiState.api.account.startDeviceLogin(), "Could not start AnxOS account sign-in.");
+    accountState = assertAccountResultOk(await desktopApiState.api.account.startDeviceLogin(), "Could not start AnxHost account sign-in.");
     renderAccountState();
     if (accountState.pending) {
       startAccountPolling(accountState.pending.intervalMs);
       showToast(accountState.pending.manualOpenRequired
         ? "No browser could be opened. Open the sign-in link or copy the device code below."
-        : "Opened AnxOS sign-in in your browser.");
+        : "Opened AnxHost sign-in in your browser.");
     } else {
       stopAccountPolling();
-      setAccountMessage(accountState.message || "AnxOS account sign-in did not start.");
-      showToast(accountState.message || "AnxOS account sign-in did not start.");
+      setAccountMessage(accountState.message || "AnxHost account sign-in did not start.");
+      showToast(accountState.message || "AnxHost account sign-in did not start.");
     }
   } catch (error) {
-    const message = normalizeIpcErrorMessage(error, "Could not start AnxOS account sign-in.");
+    const message = normalizeIpcErrorMessage(error, "Could not start AnxHost account sign-in.");
     accountStartRetryAfter = Date.now() + 10000;
     stopAccountPolling();
     setAccountMessage(message);
@@ -37879,7 +37887,7 @@ async function switchAnxOsAccount() {
   await refreshSecurityState();
   renderAccountState();
   renderLocalSetupState();
-  showToast("Choose another AnxOS account to sign in.");
+  showToast("Choose another AnxHost account to sign in.");
 }
 
 async function loginAnxOsAccountWithPassword(event) {
@@ -37898,7 +37906,7 @@ async function loginAnxOsAccountWithPassword(event) {
   }
   try {
     accountRefreshGeneration += 1;
-    accountState = assertAccountResultOk(await desktopApiState.api.account.loginWithPassword({ email, password }), "AnxOS account sign-in failed.");
+    accountState = assertAccountResultOk(await desktopApiState.api.account.loginWithPassword({ email, password }), "AnxHost account sign-in failed.");
     accountRestorationResolved = true;
     if (accountPasswordPassword) accountPasswordPassword.value = "";
     await refreshSecurityState();
@@ -37906,10 +37914,10 @@ async function loginAnxOsAccountWithPassword(event) {
     if (hasOwnerWorkspaceAccess()) {
       showToast("Signed in with Owner access.");
     } else {
-      showToast("Signed in with AnxOS account.");
+      showToast("Signed in with AnxHost account.");
     }
   } catch (error) {
-    const message = normalizeIpcErrorMessage(error, "AnxOS account sign-in failed.");
+    const message = normalizeIpcErrorMessage(error, "AnxHost account sign-in failed.");
     setAccountMessage(message);
     showToast(message);
   } finally {
@@ -37932,7 +37940,7 @@ async function cancelAnxOsAccountLogin() {
   if (!desktopApiState.hasAccount) return;
   accountState = await desktopApiState.api.account.cancelDeviceLogin().then((result) => assertAccountResultOk(result, "Could not cancel account sign-in.")).catch(() => ({ authenticated: false, account: null, pending: null, state: "cancelled" }));
   renderAccountState();
-  showToast("AnxOS account sign-in cancelled.");
+  showToast("AnxHost account sign-in cancelled.");
 }
 
 async function copyAnxOsAccountCode() {
@@ -37952,7 +37960,7 @@ async function logoutAnxOsAccount() {
   renderAccountState();
   renderLocalSetupState();
   await refreshSecurityState();
-  showToast("Signed out of AnxOS account.");
+  showToast("Signed out of AnxHost account.");
 }
 
 async function bootstrapApplication() {
@@ -38443,7 +38451,7 @@ async function handleSecurityRecommendation(id) {
   if (id === "remote-access-exposed") {
     const ok = await createSecurityConfirmation({
       title: "Disable Remote Access",
-      message: "AnxOS will switch this desktop back to local mode. Firewall rules are not changed.",
+      message: "AnxHost will switch this desktop back to local mode. Firewall rules are not changed.",
       confirmLabel: "Disable",
     });
     if (ok) await runSecurityAction("disable-remote-access");
@@ -39193,7 +39201,7 @@ function createSecurityActionNotification(action, ok, message = "") {
 async function runSecurityAction(action, payload = {}) {
   const desktopApiState = getDesktopApiState();
   if (!desktopApiState.hasSecurity) return;
-  if (blockProtectedAction("Unlock AnxOS to manage security settings.")) return;
+  if (blockProtectedAction("Unlock AnxHost to manage security settings.")) return;
   const operationId = SECURITY_OPERATION_ACTIONS.has(action)
     ? startOperation({
       type: "Security",
@@ -41666,7 +41674,7 @@ function describeUnmanagedLocalPortRoute(node, visualState) {
     return null;
   }
   if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) return null;
-  return `Local port ${url.port || "(default)"} not answering · if an SSH tunnel carried it, turn on Routes › SSH tunnel so AnxOS keeps it open`;
+  return `Local port ${url.port || "(default)"} not answering · if an SSH tunnel carried it, turn on Routes › SSH tunnel so AnxHost keeps it open`;
 }
 
 function describeNodeAgentBuild(node) {
@@ -41714,7 +41722,7 @@ function openNodeRoutesModal(nodeId) {
   header.append(
     createTextElement("p", "Node connectivity", "app-modal__eyebrow"),
     Object.assign(createTextElement("h2", `${node.displayName || node.id} routes`), { id: "node-routes-title" }),
-    createTextElement("p", "AnxOS uses the first route that answers as this Agent, and goes back to the main address as soon as it answers again."),
+    createTextElement("p", "AnxHost uses the first route that answers as this Agent, and goes back to the main address as soon as it answers again."),
   );
   const status = createTextElement("p", "", "node-routes__status");
   status.setAttribute("role", "status");
@@ -41806,7 +41814,7 @@ function openNodeRoutesModal(nodeId) {
     const tunnel = nodeTunnelStatusById.get(node.id);
     const enabled = node.transport?.type === "ssh-tunnel";
     section.append(createTextElement("p", enabled
-      ? `AnxOS keeps an SSH tunnel open to this Agent. State: ${NODE_TUNNEL_STATE_LABELS[tunnel?.state] || "Starting"}${tunnel?.lastError?.message ? ` · ${tunnel.lastError.message}` : ""}`
+      ? `AnxHost keeps an SSH tunnel open to this Agent. State: ${NODE_TUNNEL_STATE_LABELS[tunnel?.state] || "Starting"}${tunnel?.lastError?.message ? ` · ${tunnel.lastError.message}` : ""}`
       : "For servers whose Agent only listens on the server itself. The main address must be a local address such as http://127.0.0.1:47132.", "node-routes__hint"));
     const keyProfiles = (profiles || []).filter((profile) => profile.authType === "privateKey");
     const profileSelect = document.createElement("select");
@@ -41838,7 +41846,7 @@ function openNodeRoutesModal(nodeId) {
     actions.append(button(enabled ? "Save tunnel" : "Use SSH tunnel", async () => {
       if (!profileSelect.value) throw new Error("Choose an SSH key profile first. Password profiles can't run unattended tunnels.");
       const result = failIfRefused(await api.nodes.setTransport(node.id, { type: "ssh-tunnel", sshProfileId: profileSelect.value, remoteHost: "127.0.0.1", remotePort: Number(portInput.value) }), "The tunnel could not be saved.");
-      status.textContent = "SSH tunnel saved. AnxOS is connecting...";
+      status.textContent = "SSH tunnel saved. AnxHost is connecting...";
       await applyNode(result.node);
     }, !enabled));
     if (enabled) {
@@ -41932,7 +41940,7 @@ function renderNodes() {
       detailTarget.textContent = nodeSwitchInProgress
         ? "Switching node..."
         : securityState?.localOwnerAuthenticated !== true
-          ? "Unlock AnxOS to start the Application Host."
+          ? "Unlock AnxHost to start the Application Host."
         : !selected
           ? "Application Host unavailable."
         : selected.kind === "application-host"
@@ -42238,7 +42246,7 @@ function renderFleetSummary() {
   }
   if (fleetMessage) {
     fleetMessage.textContent = securityState?.localOwnerAuthenticated !== true
-      ? "Unlock AnxOS to aggregate the fleet."
+      ? "Unlock AnxHost to aggregate the fleet."
       : fleetState?.error
         ? fleetState.error
         : fleetState?.checkedAt
@@ -42546,7 +42554,7 @@ function renderNetworkInventory() {
 
   if (locked) {
     setNetworkInventoryStatus("Locked", "planned");
-    setNetworkInventoryMessage("Unlock AnxOS to inspect this node's network inventory.");
+    setNetworkInventoryMessage("Unlock AnxHost to inspect this node's network inventory.");
   } else if (!api) {
     setNetworkInventoryStatus("Unavailable", "warning");
     setNetworkInventoryMessage("Network inventory is not available in this build.");
@@ -42872,7 +42880,7 @@ function renderInfrastructureInventory() {
     infraInventoryNodes?.replaceChildren();
     infraInventoryBody?.replaceChildren();
     setInfraInventoryStatus("Locked", "planned");
-    setInfraInventoryMessage("Unlock AnxOS to view the infrastructure inventory.");
+    setInfraInventoryMessage("Unlock AnxHost to view the infrastructure inventory.");
     syncInfraInventoryControls(false);
     return;
   }
@@ -45081,7 +45089,7 @@ function syncFleetControls() {
     const targetLabel = `${targets.length} filtered node${targets.length === 1 ? "" : "s"}`;
     button.title = fleetAction === "start"
       ? `Reconnect ${targetLabel}`
-      : `Disconnect ${targetLabel}: AnxOS stops managing them until they are reconnected`;
+      : `Disconnect ${targetLabel}: AnxHost stops managing them until they are reconnected`;
   });
 }
 
@@ -45133,7 +45141,7 @@ async function runFleetBatchActionFromUi(action) {
     return;
   }
   if (fleetBatchInFlight) return;
-  if (blockProtectedAction("Unlock AnxOS to manage nodes.")) return;
+  if (blockProtectedAction("Unlock AnxHost to manage nodes.")) return;
   const targets = getFleetTargetNodes();
   if (!targets.length) {
     showToast("No nodes match the current group filter.", "info");
@@ -45142,7 +45150,7 @@ async function runFleetBatchActionFromUi(action) {
   const targetLabels = targets.map((node) => node.displayName || node.id);
   if (action === "stop" && !(await confirmDestructiveAction({
     title: `Stop ${targets.length} node${targets.length === 1 ? "" : "s"}?`,
-    message: `AnxOS will disconnect from: ${targetLabels.join(", ")}. Each node keeps its records; use Start Nodes to reconnect.`,
+    message: `AnxHost will disconnect from: ${targetLabels.join(", ")}. Each node keeps its records; use Start Nodes to reconnect.`,
     confirmLabel: "Stop Nodes",
   }))) return;
   fleetBatchInFlight = true;
@@ -45277,7 +45285,7 @@ async function saveNodeFromSettings() {
   if (!desktopApiState.hasNodes || nodeFormBusy) {
     return;
   }
-  if (blockProtectedAction("Unlock AnxOS to add nodes.")) return;
+  if (blockProtectedAction("Unlock AnxHost to add nodes.")) return;
   const payload = getNodeFormPayload();
   const errors = validateNodeFormPayload(payload);
   setNodeFormErrors(errors);
@@ -45312,7 +45320,7 @@ async function testNodeFormConnection() {
   if (!desktopApiState.hasNodes || nodeFormBusy) {
     return;
   }
-  if (blockProtectedAction("Unlock AnxOS to test node connections.")) return;
+  if (blockProtectedAction("Unlock AnxHost to test node connections.")) return;
   const payload = getNodeFormPayload();
   const errors = validateNodeFormPayload(payload);
   setNodeFormErrors(errors);
@@ -45484,7 +45492,7 @@ async function deleteSelectedNode() {
   }
   if (!(await confirmDestructiveAction({
     title: "Remove this connected system?",
-    message: `${node?.displayName || nodeId} will be removed from AnxOS. This does not uninstall the Agent from that system.`,
+    message: `${node?.displayName || nodeId} will be removed from AnxHost. This does not uninstall the Agent from that system.`,
     confirmLabel: "Remove System",
   }))) {
     return;
@@ -45552,9 +45560,9 @@ function getNodeDeleteToast(result) {
     if (revocation.attempted !== true) {
       // No revocation was even attempted (locked credentials, no agent URL,
       // node not registered with an agent) — saying "failed" would be false.
-      return "Node removed from AnxOS. Remote revocation was not attempted (no usable agent connection).";
+      return "Node removed from AnxHost. Remote revocation was not attempted (no usable agent connection).";
     }
-    return `Node removed from AnxOS, but remote revocation failed: ${revocation.reason || "unknown reason"}.`;
+    return `Node removed from AnxHost, but remote revocation failed: ${revocation.reason || "unknown reason"}.`;
   }
   return "Node removed.";
 }
@@ -45567,7 +45575,7 @@ async function deleteNodeById(nodeId) {
   }
   if (!(await confirmDestructiveAction({
     title: "Remove this connected system?",
-    message: `${node.displayName || node.id} will be removed from AnxOS. This does not uninstall the Agent from that system.`,
+    message: `${node.displayName || node.id} will be removed from AnxHost. This does not uninstall the Agent from that system.`,
     confirmLabel: "Remove System",
   }))) {
     return;
@@ -45749,13 +45757,13 @@ function syncAgentConnectionDisplayWithSelectedNode() {
   const selected = getSelectedNode();
   const connectionState = getNodeConnectionState(selected);
   if (securityState?.localOwnerAuthenticated !== true) {
-    setAgentConnectionDisplay("disconnected", "Unlock AnxOS to start the Application Host.", {
+    setAgentConnectionDisplay("disconnected", "Unlock AnxHost to start the Application Host.", {
       label: "Unlock required",
     });
     return;
   }
   if (nodesState?.credentialRecovery?.degraded === true && selected?.kind === "agent") {
-    setAgentConnectionDisplay("error", "Saved node credentials could not be restored. Unlock AnxOS to continue.", {
+    setAgentConnectionDisplay("error", "Saved node credentials could not be restored. Unlock AnxHost to continue.", {
       label: "Credential recovery required",
     });
     return;
@@ -45864,7 +45872,7 @@ function renderMarketplaceSettings(settingsPayload) {
 
   if (marketplaceConfigMessage) {
     marketplaceConfigMessage.textContent = degraded
-      ? "AnxOS could not restore the saved CurseForge credentials."
+      ? "AnxHost could not restore the saved CurseForge credentials."
       : configured
       ? `CurseForge configuration mode: ${mode}.${fingerprint ? ` Key${fingerprint}.` : ""}`
       : "CurseForge is unavailable until a hosted proxy, Agent configuration, or temporary owner/private-alpha key is configured.";
@@ -46076,8 +46084,8 @@ function appendOnboardingPageAction(container, label, page, beforeOpen = null) {
 function renderOnboardingSignInStep(container) {
   const signedIn = accountState.authenticated === true;
   const pending = Boolean(accountState.pending);
-  container.append(createTextElement("p", "Your AnxOS account is separate from Local Owner. Account sign-in enables cloud and remote features; local server management can be set up without it."));
-  container.append(onboardingStatus("AnxOS account", signedIn ? "Completed" : pending ? "Waiting for sign-in" : "Optional", signedIn ? "ok" : pending ? "warning" : "planned", signedIn ? "This device has an active account session." : "You can skip this optional step and sign in later from Security."));
+  container.append(createTextElement("p", "Your AnxHost account is separate from Local Owner. Account sign-in enables cloud and remote features; local server management can be set up without it."));
+  container.append(onboardingStatus("AnxHost account", signedIn ? "Completed" : pending ? "Waiting for sign-in" : "Optional", signedIn ? "ok" : pending ? "warning" : "planned", signedIn ? "This device has an active account session." : "You can skip this optional step and sign in later from Security."));
   const actions = document.createElement("div");
   actions.className = "onboarding-inline-actions";
   if (!signedIn) {
@@ -46095,7 +46103,7 @@ function renderOnboardingLocalOwnerStep(container) {
   const available = getDesktopApiState().hasSecurity;
   const ready = securityState.setupRequired === false;
   const unlocked = securityState.authenticated === true;
-  container.append(createTextElement("p", "Local Owner protects privileged settings on this computer. It is stored locally and is not your online AnxOS account."));
+  container.append(createTextElement("p", "Local Owner protects privileged settings on this computer. It is stored locally and is not your online AnxHost account."));
   container.append(onboardingStatus("Local Owner", !available ? "Unavailable" : unlocked ? "Completed" : ready ? "Locked" : "Setup required", unlocked ? "ok" : available ? "warning" : "critical", unlocked ? "Privileged local settings are unlocked." : ready ? "Unlock Local Owner to continue privileged setup." : "Create Local Owner to protect privileged actions."));
   const actions = document.createElement("div");
   actions.className = "onboarding-inline-actions";
@@ -46108,7 +46116,7 @@ function renderOnboardingConnectAgentStep(container) {
   container.append(createTextElement(
     "p",
     onboardingUsesLocalAgent()
-      ? "AnxOS prepares and pairs the Local Agent on this computer for you. To connect another desktop computer, install AnxOS Control Center there, open Agent Control, and select Connect this computer."
+      ? "AnxHost prepares and pairs the Local Agent on this computer for you. To connect another desktop computer, install AnxHost Control Center there, open Agent Control, and select Connect this computer."
       : "To connect another desktop computer or headless server, open Add Computer on this Control Center and follow the Desktop computer or Headless server steps.",
   ));
   renderOnboardingInstallLocalAgentStep(container);
@@ -46259,13 +46267,13 @@ function renderOnboardingPrepareThisPcStep(container) {
   const platform = info.platform || navigator.platform || "Unable to confirm";
   const status = hasRuntime ? "Ready" : "Unable to confirm";
   const message = hasRuntime
-    ? "This computer is ready to use with AnxOS."
+    ? "This computer is ready to use with AnxHost."
     : "Local management information is not loaded yet. Retry the check or open Diagnostics.";
   const grid = document.createElement("div");
   grid.className = "onboarding-status-grid";
   grid.append(
     onboardingStatus("Desktop application", status, hasRuntime ? "ok" : "planned", message),
-    onboardingStatus("Local Agent runtime", agent.installed ? "Ready" : "Ready to install", agent.installed ? "ok" : "planned", onboardingUsesLocalAgent() ? "The bundled runtime is managed by AnxOS." : "Skipped for remote-only setup."),
+    onboardingStatus("Local Agent runtime", agent.installed ? "Ready" : "Ready to install", agent.installed ? "ok" : "planned", onboardingUsesLocalAgent() ? "The bundled runtime is managed by AnxHost." : "Skipped for remote-only setup."),
     onboardingStatus("Windows service", agent.serviceInstalled ? "Registered" : onboardingUsesLocalAgent() ? "Not installed yet" : "Skipped", agent.serviceInstalled ? "ok" : "planned"),
     onboardingStatus("Storage paths", agent.storageWritable ? "Writable" : "Will be created", agent.storageWritable ? "ok" : "planned"),
   );
@@ -46320,7 +46328,7 @@ function getOnboardingAgentSummary() {
 
 function renderOnboardingInstallLocalAgentStep(container) {
   if (!onboardingUsesLocalAgent()) {
-    container.append(onboardingStatus("Local Agent", "Skipped", "planned", "You chose remote-only setup. AnxOS will not install the Local Agent on this PC. Add the other computer or server from Add Computer when you are ready."));
+    container.append(onboardingStatus("Local Agent", "Skipped", "planned", "You chose remote-only setup. AnxHost will not install the Local Agent on this PC. Add the other computer or server from Add Computer when you are ready."));
     const actions = document.createElement("div");
     actions.className = "onboarding-inline-actions";
     const remote = createTextElement("button", "Add Computer", "primary-button");
@@ -46330,7 +46338,7 @@ function renderOnboardingInstallLocalAgentStep(container) {
     container.append(actions);
     return;
   }
-  container.append(createTextElement("p", "AnxOS Local Agent lets AnxOS manage servers, files, backups, dependencies, and services on this computer."));
+  container.append(createTextElement("p", "AnxHost Local Agent lets AnxHost manage servers, files, backups, dependencies, and services on this computer."));
   const summary = getOnboardingAgentSummary();
   const agent = getLocalAgentOnboardingStatus();
   const grid = document.createElement("div");
@@ -46374,8 +46382,8 @@ function renderOnboardingPairSecurelyStep(container) {
     return;
   }
   const agent = getLocalAgentOnboardingStatus();
-  container.append(onboardingStatus("Secure local connection", agent.authenticated ? "Paired" : "Needs pairing", agent.authenticated ? "ok" : "warning", agent.authenticated ? "Credentials are stored locally and only the fingerprint is shown." : "AnxOS can repair local credentials automatically without token copying."));
-  container.append(createTextElement("p", "Another desktop computer connects the same way: install AnxOS Control Center there, open Agent Control, select Connect this computer, then enter its code in Add Computer on this Control Center."));
+  container.append(onboardingStatus("Secure local connection", agent.authenticated ? "Paired" : "Needs pairing", agent.authenticated ? "ok" : "warning", agent.authenticated ? "Credentials are stored locally and only the fingerprint is shown." : "AnxHost can repair local credentials automatically without token copying."));
+  container.append(createTextElement("p", "Another desktop computer connects the same way: install AnxHost Control Center there, open Agent Control, select Connect this computer, then enter its code in Add Computer on this Control Center."));
   appendOnboardingTechnicalDetails(container, "Pairing details", [
     ["Authentication", agent.authenticated ? "Successful" : "Not paired"],
     ["Token fingerprint", agent.pairing?.fingerprint || "Unavailable"],
@@ -46588,7 +46596,7 @@ async function handleOnboardingWizardFinish() {
     "onboarding.currentStep": "complete",
   }, { statusMessage: "Setup guide completed." });
   setOnboardingWizardVisible(false);
-  showToast("AnxOS setup guide completed.");
+  showToast("AnxHost setup guide completed.");
 }
 
 async function updateOnboardingState(patch = {}, options = {}) {
@@ -47911,7 +47919,7 @@ async function loadMarketplaceSettings() {
         configured: false,
         diagnostics: {
           degraded: true,
-          recoveryMessage: "Unlock AnxOS to use saved Marketplace provider credentials.",
+          recoveryMessage: "Unlock AnxHost to use saved Marketplace provider credentials.",
           mode: "local-credentials-locked",
         },
       },
@@ -48209,7 +48217,7 @@ function renderDeveloperUpdateModal(state = developerUpdateState) {
                 : state?.status === "restarting"
                   ? "Restarting development application..."
         : state?.status === "restart-required" || state?.restartRequired
-          ? "Source updated successfully. Restart AnxOS to load the new source."
+          ? "Source updated successfully. Restart AnxHost to load the new source."
           : blocked
             ? getDeveloperUpdateUnavailableMessage(state)
           : state?.status === "error"
@@ -48644,19 +48652,19 @@ function renderUpdateModal(mode = getUpdateModeFromState()) {
 
   if (updateMessage) {
     if (mode === "downloading") {
-      updateMessage.textContent = "Downloading the update. You can keep using AnxOS while this finishes.";
+      updateMessage.textContent = "Downloading the update. You can keep using AnxHost while this finishes.";
     } else if (mode === "downloaded") {
       updateMessage.textContent = "The update is ready. Restart now to finish installing.";
     } else if (mode === "up-to-date") {
-      updateMessage.textContent = "This AnxOS Control Center build is the latest available version.";
+      updateMessage.textContent = "This AnxHost Control Center build is the latest available version.";
     } else if (mode === "unavailable") {
-      updateMessage.textContent = update.message || "AnxOS could not find a published update release.";
+      updateMessage.textContent = update.message || "AnxHost could not find a published update release.";
     } else if (mode === "error") {
       updateMessage.textContent = isUpdateDownloadBlocked()
-        ? "AnxOS found the update, but the update file is not publicly downloadable by the app. Open the download in your browser to install it manually."
+        ? "AnxHost found the update, but the update file is not publicly downloadable by the app. Open the download in your browser to install it manually."
         : updateUiState?.error || "The update could not be downloaded.";
     } else {
-      updateMessage.textContent = "A newer AnxOS Control Center build is available.";
+      updateMessage.textContent = "A newer AnxHost Control Center build is available.";
     }
   }
 
@@ -50463,7 +50471,7 @@ document.querySelectorAll("[data-webhook-alerts-action]").forEach((button) => {
 document.querySelector('[data-settings-action="test-notification"]')?.addEventListener("click", () => {
   if ("Notification" in window) {
     try {
-      new Notification("AnxOS notification test", { body: "Notifications are available in this environment." });
+      new Notification("AnxHost notification test", { body: "Notifications are available in this environment." });
       showToast("Test notification sent.");
     } catch {
       showToast("System notifications are not available in this environment.");
@@ -50834,7 +50842,7 @@ document.querySelector('[data-page="security"]')?.addEventListener("click", asyn
     await copyText(securityDashboardState?.remoteAccess?.address || "");
     showToast("Connection details copied.");
   } else if (action === "disable-remote-access") {
-    const ok = await createSecurityConfirmation({ title: "Disable Remote Access", message: "AnxOS will switch this desktop back to local mode. Firewall rules are not changed.", confirmLabel: "Disable" });
+    const ok = await createSecurityConfirmation({ title: "Disable Remote Access", message: "AnxHost will switch this desktop back to local mode. Firewall rules are not changed.", confirmLabel: "Disable" });
     if (ok) await runSecurityAction("disable-remote-access");
   } else if (action === "save-session-settings") {
     const ok = await createSecurityConfirmation({ title: "Update Session Security", message: "Session security changes affect sensitive actions.", confirmLabel: "Save" });

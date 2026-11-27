@@ -163,7 +163,7 @@ async function main() {
     assert.strictEqual(afterDisconnect.manualDisconnect, true, "disconnect must persist the manual-disconnect flag");
     assert.strictEqual(afterDisconnect.connection?.connected, false, "disconnect must clear the connected state");
     assert.strictEqual(afterDisconnect.connection?.status, "offline", "disconnect must mark the node offline");
-    assert.match(afterDisconnect.connection?.message || "", /Disconnected from AnxOS by the owner/, "disconnect must record an owner disconnect message");
+    assert.match(afterDisconnect.connection?.message || "", /Disconnected from AnxHost by the owner/, "disconnect must record an owner disconnect message");
     assert.strictEqual(getNodeToken(nodeA.id), "a-token", "disconnect must not delete the node credential");
 
     const disconnectedHealth = await nodeService.checkNodeHealth(nodeA.id);

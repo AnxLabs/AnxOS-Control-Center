@@ -52,6 +52,7 @@ async function runScenario({ status, dashboard }) {
     ]),
     normalizeIpcErrorMessage: (error, fallback) => error?.message || fallback,
     renderSecurityState: () => renders.push(context.securityDashboardState),
+    markSecurityStatusLoaded: () => {},
     refreshSettingsPermissions: () => Promise.resolve(),
     syncSecurityEventNotifications: () => {},
     isOwnerWorkspaceAuthorized: () => false,

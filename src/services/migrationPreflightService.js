@@ -70,7 +70,7 @@ function evaluateMigration({ sourceNode, targetNode, instance, targetInstances =
   }
   if (!targetNode) add("target", "block", "Choose a target computer");
   else if (targetNode.id === sourceNode?.id) add("target", "block", "Pick a different computer", "The server is already on this one.");
-  else if (String(targetNode.connection?.status || "").toLowerCase() !== "online") add("target", "block", `${targetName} is not connected`, "Connect it first; nothing is copied to a computer AnxOS cannot reach.");
+  else if (String(targetNode.connection?.status || "").toLowerCase() !== "online") add("target", "block", `${targetName} is not connected`, "Connect it first; nothing is copied to a computer AnxHost cannot reach.");
   else add("target", "ok", `${targetName} is connected`);
 
   if (RUNNING_STATES.has(String(instance.state || "").toLowerCase())) {

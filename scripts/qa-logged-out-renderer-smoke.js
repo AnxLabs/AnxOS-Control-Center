@@ -31,7 +31,7 @@ assert.deepStrictEqual({ ...context.getNodeIdentity(null) }, {}, "A null selecte
 // chain gained a leading unlock branch before the null guard; the pinned
 // behavior is that a null node is still handled BEFORE selected.kind is read.
 const normalizedSource = source.replace(/\s+/g, " ");
-assert(normalizedSource.includes(': securityState?.localOwnerAuthenticated !== true ? "Unlock AnxOS to start the Application Host." : !selected ? "Application Host unavailable." : selected.kind === "application-host"'),
+assert(normalizedSource.includes(': securityState?.localOwnerAuthenticated !== true ? "Unlock AnxHost to start the Application Host." : !selected ? "Application Host unavailable." : selected.kind === "application-host"'),
   "Logged-out sidebar rendering must guard a null selected node before reading its kind.");
 assert(source.includes('const authorizationUnavailable = /LOGIN_REQUIRED|UNAUTHORIZED|AUTHENTICATION_FAILED|FORBIDDEN'), "SSH profile loading must classify explicit authorization-gate failures.");
 assert(source.includes('category: authorizationUnavailable ? "authorization-required" : "unexpected"'), "Expected authorization failures must remain distinguishable from genuine renderer errors.");

@@ -5,11 +5,11 @@ const RETRYABLE_CODES = new Set([
   "REQUEST_TIMEOUT", "TIMEOUT",
 ]);
 const FRIENDLY_MESSAGES = {
-  AUTH_UNLOCK_REQUIRED: "Unlock AnxOS to continue.",
-  LOCAL_AUTHENTICATION_REQUIRED: "Unlock AnxOS to access saved local credentials.",
-  SECURE_SESSION_DECRYPT_FAILED: "Your saved session could not be restored. Please unlock AnxOS again.",
-  SECURE_SESSION_CORRUPT: "Your saved session could not be restored. Please unlock AnxOS again.",
-  NODE_CREDENTIAL_DECRYPT_FAILED: "Saved node credentials could not be restored. Unlock AnxOS to continue.",
+  AUTH_UNLOCK_REQUIRED: "Unlock AnxHost to continue.",
+  LOCAL_AUTHENTICATION_REQUIRED: "Unlock AnxHost to access saved local credentials.",
+  SECURE_SESSION_DECRYPT_FAILED: "Your saved session could not be restored. Please unlock AnxHost again.",
+  SECURE_SESSION_CORRUPT: "Your saved session could not be restored. Please unlock AnxHost again.",
+  NODE_CREDENTIAL_DECRYPT_FAILED: "Saved node credentials could not be restored. Unlock AnxHost to continue.",
 };
 const USER_SAFE_UNPREFIXED_CODES = new Set([
   "AUTH_UNLOCK_REQUIRED",

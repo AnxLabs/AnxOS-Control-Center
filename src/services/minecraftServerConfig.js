@@ -43,7 +43,7 @@ function buildMinecraftProperties(options = {}, port = 25565) {
   const selectedPort = parseMinecraftPort(port, 25565);
   return {
     "server-port": String(selectedPort),
-    motd: options.motd || `${String(options.name || options.instanceName || "AnxOS Server").trim() || "AnxOS Server"} on AnxOS`,
+    motd: options.motd || `${String(options.name || options.instanceName || "AnxHost Server").trim() || "AnxHost Server"} on AnxHost`,
     "max-players": String(options.maxPlayers || 20),
     difficulty: options.difficulty || "normal",
     gamemode: options.gamemode || "survival",

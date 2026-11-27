@@ -390,7 +390,7 @@ function normalizeManifestRelease(manifest, sourceUrl) {
   const releaseLabel = manifest?.releaseLabel || formatReleaseLabel(latestVersion, build, channel);
   return {
     tag_name: latestVersion ? `v${latestVersion}` : null,
-    name: manifest?.name || releaseLabel || (latestVersion ? `v${latestVersion}` : "AnxOS update"),
+    name: manifest?.name || releaseLabel || (latestVersion ? `v${latestVersion}` : "AnxHost update"),
     version: latestVersion || null,
     build,
     channel,

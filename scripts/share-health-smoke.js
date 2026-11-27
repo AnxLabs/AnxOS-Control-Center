@@ -93,7 +93,7 @@ const approvalAt = createFn.indexOf("await createSecurityConfirmation(");
 const sendAt = createFn.indexOf("api.publicAccess.createService(payload)");
 assert.ok(guardAt > 0 && guardAt < approvalAt && approvalAt < sendAt, "management ports are refused, then the user approves, then the share is created");
 assert.ok(createFn.includes("if (!approved) return null;"), "declining creates nothing");
-assert.ok(app.includes("message: \"AnxOS removes this server's sharing settings. A tunnel you created on playit.gg stays there"), "Stop sharing says what it does not remove");
+assert.ok(app.includes("message: \"AnxHost removes this server's sharing settings. A tunnel you created on playit.gg stays there"), "Stop sharing says what it does not remove");
 console.log("PASS H5 sharing needs approval and never covers management ports");
 
 // H6 tunnel protocol: a known mismatch is flagged, unknown never is, and

@@ -366,7 +366,7 @@ function assertAgentSpawnContractEnvironment(env) {
   const requiredKeys = ["ANXHUB_CONFIG_DIR", "AGENT_IDENTITY_PATH", "AGENT_INSTANCE_ROOT"];
   const missing = requiredKeys.filter((key) => !String(env?.[key] || "").trim());
   if (missing.length) {
-    throw Object.assign(new Error(`The Local Agent cannot be started because the spawn environment is missing ${missing.join(", ")}. Restart the Agent from AnxOS Control Center.`), {
+    throw Object.assign(new Error(`The Local Agent cannot be started because the spawn environment is missing ${missing.join(", ")}. Restart the Agent from AnxHost Control Center.`), {
       code: "AGENT_SPAWN_CONTRACT_VIOLATED",
       details: { missingSpawnEnv: missing },
     });
@@ -431,7 +431,7 @@ async function stopVerifiedOldLocalAgentProcess({ health = null, processInfo = n
   if (process.platform !== "win32") return { stopped: false, reason: "not-windows" };
   const verified = isVerifiedOldLocalAgentProcess(processInfo, health);
   if (!verified) {
-    throw Object.assign(new Error("The process listening on the Local Agent port could not be verified as an old AnxOS Agent. It was not stopped."), {
+    throw Object.assign(new Error("The process listening on the Local Agent port could not be verified as an old AnxHost Agent. It was not stopped."), {
       code: "LOCAL_AGENT_PROCESS_UNVERIFIED",
       processKind: "unknown-listener",
     });
@@ -513,10 +513,10 @@ function classifyLegacyWindowsServiceOwnership(qcOutput = "", descriptionOutput 
   const hasBinaryMarker = binaryMetadata.exists === true && metadata.includes("anxos control center");
   if (hasDisplayMarker && hasEntrypoint && hasProductPath && hasBinaryMarker) return { state: "verified-legacy", owned: true, stale: true };
   return { state: "ambiguous", owned: false, issues: [
-    hasDisplayMarker ? null : "Legacy service display name or description is not an exact AnxOS Local Agent marker.",
+    hasDisplayMarker ? null : "Legacy service display name or description is not an exact AnxHost Local Agent marker.",
     hasEntrypoint ? null : "Legacy service command does not contain the Agent server entrypoint.",
-    hasProductPath ? null : "Legacy service command does not contain an AnxOS product path.",
-    hasBinaryMarker ? null : "Legacy service executable metadata does not identify AnxOS Control Center.",
+    hasProductPath ? null : "Legacy service command does not contain an AnxHost product path.",
+    hasBinaryMarker ? null : "Legacy service executable metadata does not identify AnxHost Control Center.",
   ].filter(Boolean) };
 }
 
@@ -692,11 +692,11 @@ async function start() {
       if (!result.ok) throw Object.assign(new Error(result.stderr || result.stdout || "Background Agent could not be started."), { code: "SERVICE_START_FAILED" });
       await waitForLocalAgentHealth(config, config.connectionTimeoutMs || 10000);
       ensureLocalAgentBackendSelected(config);
-      lastRestartReason = "Background service started from AnxOS"; lastError = null; return getStatus();
+      lastRestartReason = "Background service started from AnxHost"; lastError = null; return getStatus();
     }
     const runtime = getBundledLocalAgentRuntime();
     if (!runtime.exists) {
-      throw Object.assign(new Error("Bundled Local Agent runtime is missing or incomplete. Repair AnxOS Control Center, then try again."), { code: "LOCAL_AGENT_RUNTIME_MISSING" });
+      throw Object.assign(new Error("Bundled Local Agent runtime is missing or incomplete. Repair AnxHost Control Center, then try again."), { code: "LOCAL_AGENT_RUNTIME_MISSING" });
     }
     const spawnEnv = agentEnvironment(config);
     assertAgentSpawnContractEnvironment(spawnEnv);
@@ -711,7 +711,7 @@ async function start() {
     await waitForLocalAgentHealth(config, config.connectionTimeoutMs || 3500);
     child.healthy = true;
     ensureLocalAgentBackendSelected(config);
-    lastRestartReason = "Started from AnxOS"; lastError = null; return getStatus();
+    lastRestartReason = "Started from AnxHost"; lastError = null; return getStatus();
   } catch (error) { lastError = { code: error.code || "AGENT_START_FAILED", message: error.message }; diagnostics.logError("agent-control", "start", error, {}, { file: "service-manager" }); throw error; }
   finally { operationInFlight = null; }
 }
@@ -779,12 +779,12 @@ async function restoreHelperTask() {
   // the installed Helper's task at its own executable.
   const executable = helperExecutableOverride || process.execPath;
   if (!helperExecutableOverride && path.basename(executable).toLowerCase() !== "anxos control center.exe") {
-    throw Object.assign(new Error("Only the installed AnxOS Control Center can restore its Helper."), { code: "HELPER_RESTORE_UNAVAILABLE" });
+    throw Object.assign(new Error("Only the installed AnxHost Control Center can restore its Helper."), { code: "HELPER_RESTORE_UNAVAILABLE" });
   }
   const dir = helperResourcesDir();
   const script = dir ? path.join(dir, "install-agent-task.ps1") : null;
   if (!script || !fs.existsSync(script)) {
-    throw Object.assign(new Error("The Helper setup script is missing from this installation. Run the AnxOS installer again to set the Helper up."), { code: "HELPER_RESTORE_UNAVAILABLE" });
+    throw Object.assign(new Error("The Helper setup script is missing from this installation. Run the AnxHost installer again to set the Helper up."), { code: "HELPER_RESTORE_UNAVAILABLE" });
   }
   const userId = `${process.env.USERDOMAIN || os.hostname()}\\${process.env.USERNAME || os.userInfo().username}`;
   const result = await command("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ExecutablePath", executable, "-Mode", "Install", "-UserId", userId], { timeout: 180000 });
@@ -803,10 +803,10 @@ async function stop({ force = false } = {}) {
   if (operationInFlight) throw Object.assign(new Error("Another Agent operation is already running."), { code: "AGENT_OPERATION_BUSY" });
   operationInFlight = "stop";
   cancelManagedAgentRestart();
-  try { const config = readConfig(); const service = await getServiceState(); if (service.installed && service.active && backgroundServiceBelongsToThisInstallation(service)) { const result = process.platform === "linux" ? await command("systemctl", ["--user", "stop", "anxos-agent.service"]) : await command("schtasks.exe", ["/End", "/TN", SERVICE_NAME], { timeout: 30000 }); if (!result.ok && !force && !/not been started|not running|not currently running/i.test(`${result.stdout}\n${result.stderr}`)) throw Object.assign(new Error(result.stderr || result.stdout || "Background Agent could not be stopped."), { code: "SERVICE_STOP_FAILED" }); if (process.platform === "win32") await stopVerifiedWindowsTaskAgent(config); } if (managedProcess && !managedProcess.killed) { const child = managedProcess; child.intentionalStop = true; child.kill(force ? "SIGKILL" : "SIGTERM"); await new Promise((resolve) => { const timer = setTimeout(() => { if (child.exitCode === null) child.kill("SIGKILL"); resolve(); }, 5000); child.once("exit", () => { clearTimeout(timer); resolve(); }); }); } managedProcess = null; await waitForLocalAgentStopped(config).catch(() => false); lastRestartReason = force ? "Force stopped from AnxOS" : "Stopped from AnxOS"; return getStatus(); }
+  try { const config = readConfig(); const service = await getServiceState(); if (service.installed && service.active && backgroundServiceBelongsToThisInstallation(service)) { const result = process.platform === "linux" ? await command("systemctl", ["--user", "stop", "anxos-agent.service"]) : await command("schtasks.exe", ["/End", "/TN", SERVICE_NAME], { timeout: 30000 }); if (!result.ok && !force && !/not been started|not running|not currently running/i.test(`${result.stdout}\n${result.stderr}`)) throw Object.assign(new Error(result.stderr || result.stdout || "Background Agent could not be stopped."), { code: "SERVICE_STOP_FAILED" }); if (process.platform === "win32") await stopVerifiedWindowsTaskAgent(config); } if (managedProcess && !managedProcess.killed) { const child = managedProcess; child.intentionalStop = true; child.kill(force ? "SIGKILL" : "SIGTERM"); await new Promise((resolve) => { const timer = setTimeout(() => { if (child.exitCode === null) child.kill("SIGKILL"); resolve(); }, 5000); child.once("exit", () => { clearTimeout(timer); resolve(); }); }); } managedProcess = null; await waitForLocalAgentStopped(config).catch(() => false); lastRestartReason = force ? "Force stopped from AnxHost" : "Stopped from AnxHost"; return getStatus(); }
   finally { operationInFlight = null; }
 }
-async function restart({ force = false } = {}) { await stop({ force }); lastRestartReason = force ? "Force restarted from AnxOS" : "Restarted from AnxOS"; return start(); }
+async function restart({ force = false } = {}) { await stop({ force }); lastRestartReason = force ? "Force restarted from AnxHost" : "Restarted from AnxHost"; return start(); }
 
 // Best effort after a failed install or repair step: start() returns at once
 // when the Agent is already healthy.
@@ -946,7 +946,7 @@ async function installService() {
     let repaired;
     try { repaired = await agentClient.repairWindowsAgentTask(getLocalAgentHealthConfig(config)); }
     catch (error) {
-      throw Object.assign(new Error("The elevated Local Agent is unavailable to repair Windows startup."), { code: "AGENT_PRIVILEGED_OPERATION_UNAVAILABLE", cause: error, recoverySuggestion: "Repair or reinstall AnxOS so the elevated Agent task can be restored, then try again." });
+      throw Object.assign(new Error("The elevated Local Agent is unavailable to repair Windows startup."), { code: "AGENT_PRIVILEGED_OPERATION_UNAVAILABLE", cause: error, recoverySuggestion: "Repair or reinstall AnxHost so the elevated Agent task can be restored, then try again." });
     }
     if (!repaired?.matchesCanonicalDefinition || repaired?.agentHealth !== "healthy") throw Object.assign(new Error("The Agent did not confirm a healthy canonical startup task."), { code: "AGENT_TASK_DEFINITION_MISMATCH", details: { mismatchReasons: repaired?.mismatchReasons || [] } });
   }
@@ -1007,7 +1007,7 @@ async function installLocalAgent(options = {}) {
 
     const runtime = getBundledLocalAgentRuntime();
     if (!runtime.exists) {
-      mark("runtime", "failed", "The bundled Local Agent runtime is missing. Repair AnxOS Control Center, then retry.");
+      mark("runtime", "failed", "The bundled Local Agent runtime is missing. Repair AnxHost Control Center, then retry.");
       throw Object.assign(new Error("Bundled Local Agent runtime is missing or incomplete."), { code: "LOCAL_AGENT_RUNTIME_MISSING", steps });
     }
     mark("runtime", "complete", "Bundled runtime is available.");
@@ -1108,7 +1108,7 @@ async function installLocalAgent(options = {}) {
     mark("verify", "complete", "Desktop reconnected to the Local Agent.");
     mark("rollback", "skipped", "No rollback was needed.");
     lastInstallSteps = steps.map((entry) => ({ ...entry }));
-    lastRestartReason = "Installed Local Agent from AnxOS";
+    lastRestartReason = "Installed Local Agent from AnxHost";
     lastError = null;
     return {
       ok: true,
@@ -1238,7 +1238,7 @@ async function updateLocalAgent(options = {}) {
     const update = getLocalAgentUpdateState(before);
     mark("detect", "complete", `${update.installedVersion || "Unknown"} -> ${update.bundledVersion}`);
     if (update.agentNewerThanDesktop && options.force !== true) {
-      throw Object.assign(new Error("The Local Agent is newer than this Desktop build. Install a newer AnxOS Control Center before changing the Agent runtime."), { code: "AGENT_NEWER_THAN_DESKTOP", steps, update });
+      throw Object.assign(new Error("The Local Agent is newer than this Desktop build. Install a newer AnxHost Control Center before changing the Agent runtime."), { code: "AGENT_NEWER_THAN_DESKTOP", steps, update });
     }
     if (!update.versionMismatch && options.force !== true) {
       mark("backup", "skipped", "No update is required.");
@@ -1283,7 +1283,7 @@ async function updateLocalAgent(options = {}) {
       backupRoot: backup.backupRoot,
       status: "complete",
     });
-    lastRestartReason = "Updated Local Agent runtime from AnxOS";
+    lastRestartReason = "Updated Local Agent runtime from AnxHost";
     lastError = null;
     return { ok: true, updated: true, update: afterUpdate, previousUpdate: update, backup, recordPath, steps, status: await getStatus() };
   } catch (error) {
@@ -1347,7 +1347,7 @@ async function updateLinuxAgent(options = {}) {
     const update = getLocalAgentUpdateState(before);
     mark("detect", "complete", `${update.installedVersion || "Unknown"} -> ${update.bundledVersion}`);
     if (update.agentNewerThanDesktop && options.force !== true) {
-      throw Object.assign(new Error("The Local Agent is newer than this Desktop build. Install a newer AnxOS Control Center before changing the Agent runtime."), { code: "AGENT_NEWER_THAN_DESKTOP", steps, update });
+      throw Object.assign(new Error("The Local Agent is newer than this Desktop build. Install a newer AnxHost Control Center before changing the Agent runtime."), { code: "AGENT_NEWER_THAN_DESKTOP", steps, update });
     }
     if (!update.versionMismatch && options.force !== true) {
       mark("backup", "skipped", "No update is required.");
@@ -1398,7 +1398,7 @@ async function updateLinuxAgent(options = {}) {
       throw Object.assign(new Error("Local Agent restarted but did not report the bundled runtime version."), { code: "LOCAL_AGENT_UPDATE_VERIFY_FAILED", steps, update: afterUpdate });
     }
     mark("verify", "complete", "Local Agent health verified after update.");
-    lastRestartReason = "Updated Linux Agent runtime from AnxOS";
+    lastRestartReason = "Updated Linux Agent runtime from AnxHost";
     lastError = null;
     return {
       ok: true,
@@ -2590,13 +2590,13 @@ async function runDiagnostics() {
         : registrationStatus === "invalid"
           ? "Background startup registration exists but does not match the current Agent command."
           : registrationStatus === "unverifiable"
-            ? "Windows would not allow AnxOS to verify the startup registration."
+            ? "Windows would not allow AnxHost to verify the startup registration."
             : registrationStatus === "missing"
               ? "Background startup is not installed."
               : "Background startup is not supported on this platform.",
       repairAction: status.service?.supported && registrationStatus !== "valid" ? "install-service" : null,
       code: serviceRequiresElevation ? "ELEVATION_REQUIRED" : undefined,
-      recoverySuggestion: serviceRequiresElevation ? "Run AnxOS Control Center as Administrator, then install the Agent service again." : undefined,
+      recoverySuggestion: serviceRequiresElevation ? "Run AnxHost Control Center as Administrator, then install the Agent service again." : undefined,
       registrationStatus,
       requiresElevation: serviceRequiresElevation,
       elevated: status.service?.privilege?.elevated ?? null,

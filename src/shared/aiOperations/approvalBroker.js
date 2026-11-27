@@ -59,7 +59,7 @@ function createApprovalBroker({ now = () => Date.now(), ttlMs = DEFAULT_TTL_MS, 
     const record = { ...entry };
     if (ACTIVE_STATES.has(record.state)) {
       record.state = "interrupted";
-      record.result = { ok: false, message: "AnxOS closed while this operation was in progress. It was not retried. Check the server's state before trying again." };
+      record.result = { ok: false, message: "AnxHost closed while this operation was in progress. It was not retried. Check the server's state before trying again." };
       record.updatedAt = now();
     } else if (OPEN_STATES.has(record.state)) {
       record.state = "expired";

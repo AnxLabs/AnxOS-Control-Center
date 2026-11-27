@@ -32,7 +32,7 @@ function resolveComputerNodeId(payload = {}) {
 
 function registerComputersIpc() {
   ipcMain.handle("computers:getSummary", async (_, payload = {}) => invokeComputersOperation(() => {
-    requireLocalOwnerAuthenticated("computers:getSummary", "Unlock AnxOS to view computers.");
+    requireLocalOwnerAuthenticated("computers:getSummary", "Unlock AnxHost to view computers.");
     requirePermission("nodes:read", "computers");
     const nodeId = resolveComputerNodeId(payload);
     audit({ action: "computers.getSummary", target: nodeId || "computers" });

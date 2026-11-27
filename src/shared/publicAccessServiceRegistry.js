@@ -543,7 +543,7 @@ function reconcileAccessServices(services = [], snapshot = {}) {
         providerResourceStatus: service.providerResourceId || service.tunnelId ? "linked" : "not-created-by-anxos",
         unsupportedReason: service.providerResourceId || service.tunnelId
           ? null
-          : "AnxOS saved this Cloudflare web service record, but tunnel and DNS resources must be created or linked through a supported cloudflared workflow before traffic will route.",
+          : "AnxHost saved this Cloudflare web service record, but tunnel and DNS resources must be created or linked through a supported cloudflared workflow before traffic will route.",
         state: provider.running === true || provider.lifecycleState === "running" ? "available" : service.state || "pending-provider-setup",
         status: provider.running === true || provider.lifecycleState === "running" ? "Web Tunnel" : service.status || "Pending tunnel setup",
         lastCheckedAt: snapshot.checkedAt || service.lastCheckedAt,
@@ -572,7 +572,7 @@ function reconcileAccessServices(services = [], snapshot = {}) {
       status: service.providerId === "playit" ? "Pending Playit tunnel setup" : service.status || "Pending provider setup",
       state: service.state || "pending-provider-setup",
       providerResourceStatus: service.providerResourceStatus || (service.providerId === "playit" ? "not-created-by-anxos" : null),
-      unsupportedReason: service.unsupportedReason || (service.providerId === "playit" ? "AnxOS saved this access record, but the detected Playit integration did not expose safe tunnel creation. Create or link the matching tunnel in Playit, then refresh." : null),
+      unsupportedReason: service.unsupportedReason || (service.providerId === "playit" ? "AnxHost saved this access record, but the detected Playit integration did not expose safe tunnel creation. Create or link the matching tunnel in Playit, then refresh." : null),
       lastCheckedAt: snapshot.checkedAt || service.lastCheckedAt,
     };
   });

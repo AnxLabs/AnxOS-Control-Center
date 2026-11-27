@@ -954,7 +954,7 @@ async function requestAgentProxyJson(pathname, params = {}, label = "CurseForge 
     const unauthorized = error?.status === 401 || code === "UNAUTHORIZED";
     throw new CurseForgeProviderError(
       missing
-        ? "CurseForge is not configured on the selected AnxOS Agent."
+        ? "CurseForge is not configured on the selected AnxHost Agent."
         : unauthorized && nodeLabel
           ? `${nodeLabel} credential rejected. Repair the selected node connection before installing.`
           : error?.message || `${label}: Agent proxy request failed.`,

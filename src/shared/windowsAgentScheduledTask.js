@@ -41,7 +41,7 @@ function getCurrentWindowsUser(env = process.env) {
 function buildWindowsAgentTaskDefinition({ executablePath = process.execPath, userId = getCurrentWindowsUser() } = {}) {
   const executable = path.win32.resolve(String(executablePath || ""));
   if (!executable || !path.win32.isAbsolute(executable)) {
-    const error = new Error("The installed AnxOS executable path is missing or invalid.");
+    const error = new Error("The installed AnxHost executable path is missing or invalid.");
     error.code = "AGENT_TASK_EXECUTABLE_MISSING";
     throw error;
   }

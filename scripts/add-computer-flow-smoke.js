@@ -124,7 +124,7 @@ function main() {
   const uninstallButtonIndex = html.indexOf('data-agent-control-action="uninstallService"');
   assert(uninstallButtonIndex >= 0, "Agent Control must keep its uninstall action.");
   const uninstallRegion = html.slice(uninstallButtonIndex, uninstallButtonIndex + 3000);
-  assertContains(uninstallRegion, "Uninstalling AnxOS Control Center removes the application only.", "Agent Control uninstall note");
+  assertContains(uninstallRegion, "Uninstalling AnxHost Control Center removes the application only.", "Agent Control uninstall note");
   assertContains(uninstallRegion, "Servers, settings, and backups are kept.", "Agent Control uninstall note");
 
   // --- strings the two existing UX smokes depend on -------------------------

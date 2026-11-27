@@ -68,7 +68,7 @@ function validateEdgeConfig(config) {
   if (config.listenHost !== undefined && (typeof config.listenHost !== "string" || !config.listenHost.trim())) errors.push("listenHost must be an address, for example 0.0.0.0.");
 
   if (!Array.isArray(config.networks) || !config.networks.length) {
-    errors.push("List at least one network in networks. AnxOS shows the entry under Computers > AnxNet > Relay and gateway (Copy edge config).");
+    errors.push("List at least one network in networks. AnxHost shows the entry under Computers > AnxNet > Relay and gateway (Copy edge config).");
   } else if (config.networks.length > MAX_NETWORKS) {
     errors.push(`An edge serves at most ${MAX_NETWORKS} networks.`);
   } else {
@@ -82,7 +82,7 @@ function validateEdgeConfig(config) {
       try {
         crypto.createPublicKey({ key: Buffer.from(String(entry.ownerPublicKey || ""), "base64"), format: "der", type: "spki" });
       } catch {
-        errors.push(`${label}.ownerPublicKey is not a public key. Copy it from AnxOS instead of typing it.`);
+        errors.push(`${label}.ownerPublicKey is not a public key. Copy it from AnxHost instead of typing it.`);
       }
     });
   }

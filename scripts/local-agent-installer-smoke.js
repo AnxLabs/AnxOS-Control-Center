@@ -66,7 +66,7 @@ assert(preload.includes("pairLocalAgent: (payload = {}) => ipcRenderer.invoke(\"
 [
   "data-agent-local-installer",
   "Install Local Agent",
-  "AnxOS Local Agent lets AnxOS manage servers, files, backups, dependencies, and services on this computer.",
+  "AnxHost Local Agent lets AnxHost manage servers, files, backups, dependencies, and services on this computer.",
   "data-agent-control-action=\"installLocalAgent\"",
   "data-agent-control-action=\"stopOldLocalAgentAndRepair\"",
   "data-agent-control-action=\"learnLocalAgent\"",

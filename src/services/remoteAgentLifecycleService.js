@@ -86,7 +86,7 @@ function verifySshTarget(node, profile, target) {
     if (shortHostname(expectedHostname) === shortHostname(target.hostname)) return;
     throw fail("REMOTE_AGENT_SSH_TARGET_MISMATCH", `The SSH profile "${profile.displayName || profile.id}" (${reached}) reaches ${target.hostname}, not ${nodeName} (${expectedHostname}). Assign the right SSH profile to this node on the SSH page.`, { nodeId: node.id, profileId: profile.id, reachedHostname: target.hostname });
   }
-  throw fail("REMOTE_AGENT_SSH_TARGET_UNVERIFIED", `AnxOS could not confirm that the SSH profile "${profile.displayName || profile.id}" (${reached}) reaches ${nodeName}, so nothing was run.`, { nodeId: node.id, profileId: profile.id });
+  throw fail("REMOTE_AGENT_SSH_TARGET_UNVERIFIED", `AnxHost could not confirm that the SSH profile "${profile.displayName || profile.id}" (${reached}) reaches ${nodeName}, so nothing was run.`, { nodeId: node.id, profileId: profile.id });
 }
 
 function parseScopeProbe(output = "") {

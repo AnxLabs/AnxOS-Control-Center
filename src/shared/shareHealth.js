@@ -113,7 +113,7 @@
     "service-process": "Server program",
     "local-socket": "Game accepts connections on its computer",
     "host-network": "Computer's network",
-    agent: "AnxOS Agent on that computer",
+    agent: "AnxHost Agent on that computer",
     provider: "Playit tunnel",
     "public-endpoint": "Reachable from the internet",
   });
@@ -182,9 +182,9 @@
     5900: "VNC",
     5985: "Windows Remote Management",
     5986: "Windows Remote Management (TLS)",
-    6566: "AnxOS Agent",
-    47131: "AnxOS Agent",
-    47800: "AnxOS Phone Access",
+    6566: "AnxHost Agent",
+    47131: "AnxHost Agent",
+    47800: "AnxHost Phone Access",
   });
 
   function getManagementPortName(port) {
@@ -203,7 +203,7 @@
     if (privateNetwork) {
       return `People in your ${providerName} network will be able to connect to ${serverName} on ${portText}.\n\nNothing else on this computer is shared.`;
     }
-    return `Anyone with the address will be able to connect to ${serverName} on ${portText} from the internet, through ${providerName}.\n\nOnly this game port is shared. AnxOS never shares SSH, Docker, Remote Desktop, admin panels or the AnxOS Agent.\n\nYou can stop sharing at any time from this server's Share dialog.`;
+    return `Anyone with the address will be able to connect to ${serverName} on ${portText} from the internet, through ${providerName}.\n\nOnly this game port is shared. AnxHost never shares SSH, Docker, Remote Desktop, admin panels or the AnxHost Agent.\n\nYou can stop sharing at any time from this server's Share dialog.`;
   }
 
   // Playit tunnels are created on playit.gg (the detected integration does not
@@ -212,7 +212,7 @@
     return [
       "Open playit.gg and sign in to the account linked to this computer.",
       `Add a tunnel of type ${upperProtocol(protocol)} that points to local port ${port}.`,
-      "Come back here and click Test connection. AnxOS finds the tunnel by its port.",
+      "Come back here and click Test connection. AnxHost finds the tunnel by its port.",
     ];
   }
 

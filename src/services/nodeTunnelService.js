@@ -253,10 +253,10 @@ function createNodeTunnelService(overrides = {}) {
     server.on("error", (error) => {
       if (tunnel.stopped) return;
       if (error?.code === "EADDRINUSE") {
-        setState(tunnel, "external", { code: "LOCAL_PORT_IN_USE", message: `Another program already serves 127.0.0.1:${tunnel.localPort}; AnxOS is using it as is.` });
+        setState(tunnel, "external", { code: "LOCAL_PORT_IN_USE", message: `Another program already serves 127.0.0.1:${tunnel.localPort}; AnxHost is using it as is.` });
         return;
       }
-      setState(tunnel, "failed", { code: error?.code || "TUNNEL_LISTEN_FAILED", message: "AnxOS could not open the local tunnel port." });
+      setState(tunnel, "failed", { code: error?.code || "TUNNEL_LISTEN_FAILED", message: "AnxHost could not open the local tunnel port." });
     });
     server.listen(tunnel.localPort, LOOPBACK_HOST, () => connectSsh(tunnel));
     events.emit("status", statusOf(tunnel));

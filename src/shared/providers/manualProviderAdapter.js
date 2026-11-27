@@ -39,7 +39,7 @@ function createManualProviderAdapter() {
         state: "setup-required",
         diagnostics: [{
           code: "MANUAL_PROVIDER_ADVISORY",
-          message: "Public reachability depends on operator-managed router/DNS configuration and is not verified by AnxOS.",
+          message: "Public reachability depends on operator-managed router/DNS configuration and is not verified by AnxHost.",
         }],
       });
     },

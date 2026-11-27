@@ -69,7 +69,7 @@ function getNodeToken(nodeId, options = {}) {
     nodeCredentialRecovery = {
       degraded: true,
       reason: "node_credentials_unavailable",
-      message: "Saved node credentials could not be restored. Unlock AnxOS to continue.",
+      message: "Saved node credentials could not be restored. Unlock AnxHost to continue.",
     };
     if (options.preserveDecryptionError === true) throw error;
     return "";
@@ -85,14 +85,14 @@ function hasNodeToken(nodeId) {
     nodeCredentialRecovery = {
       degraded: true,
       reason: "node_credentials_unavailable",
-      message: "Saved node credentials could not be restored. Unlock AnxOS to continue.",
+      message: "Saved node credentials could not be restored. Unlock AnxHost to continue.",
     };
     return false;
   }
 }
 
 function setNodeToken(nodeId, token) {
-  requireNodeCredentialWrite("node-credential-write", "Unlock AnxOS to manage nodes.");
+  requireNodeCredentialWrite("node-credential-write", "Unlock AnxHost to manage nodes.");
   try {
     return setStoredNodeToken(nodeId, token);
   } catch (error) {
@@ -114,7 +114,7 @@ function setNodeToken(nodeId, token) {
 }
 
 function deleteNodeToken(nodeId) {
-  requireNodeCredentialWrite("node-credential-delete", "Unlock AnxOS to manage nodes.");
+  requireNodeCredentialWrite("node-credential-delete", "Unlock AnxHost to manage nodes.");
   return deleteStoredNodeToken(nodeId);
 }
 
@@ -1163,7 +1163,7 @@ function selectedNodeConfiguredCredential(state) {
 }
 
 function writeNodeState(state) {
-  requireNodeCredentialWrite("node-config-write", "Unlock AnxOS to manage nodes.");
+  requireNodeCredentialWrite("node-config-write", "Unlock AnxHost to manage nodes.");
   ensureConfigDirectory();
   const recoverableCredentials = Object.fromEntries(
     state.nodes
@@ -1611,7 +1611,7 @@ async function listNodes(options = {}) {
       applicationHost: getApplicationHostNode().applicationHost,
       selectedNodeId: state.selectedNodeId,
       credentialsLocked: true,
-      recoveryMessage: "Saved node credentials could not be restored. Unlock AnxOS to continue.",
+      recoveryMessage: "Saved node credentials could not be restored. Unlock AnxHost to continue.",
       nodes: [publicNode(getApplicationHostNode()), ...state.nodes.map(publicNode)],
       configPath: getNodesPath(),
     };
@@ -1713,7 +1713,7 @@ function getNodeAgentConfigFromNode(node) {
   if (!localCredentialsUnlocked()) {
     authRecovery.requireLocalCredentialsUnlocked(
       `node-credential:${node.id}`,
-      "Unlock AnxOS to access saved node credentials.",
+      "Unlock AnxHost to access saved node credentials.",
     );
   }
   return {
@@ -2209,7 +2209,7 @@ function setNodeManualDisconnect(node, disconnected) {
     connection: manualDisconnect
       ? buildConnectionPatch({
           state: "offline",
-          message: "Disconnected from AnxOS by the owner. Use Reconnect or re-pair to restore.",
+          message: "Disconnected from AnxHost by the owner. Use Reconnect or re-pair to restore.",
           localAgent: isExplicitLocalAgentNode(node) || isThisPcAgentUrl(node.agentUrl),
           previous: node.connection || null,
         })

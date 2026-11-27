@@ -73,7 +73,7 @@ const DEPENDENCY_PROVENANCE_MESSAGES = Object.freeze({
   [DEPENDENCY_PROVENANCE_VERDICTS.VERIFIED]: Object.freeze({
     severity: "ok",
     title: "Verified dependency",
-    body: "AnxOS recognizes this dependency as first-party (or attestation-verified) and an independently computed integrity hash matches the declaration.",
+    body: "AnxHost recognizes this dependency as first-party (or attestation-verified) and an independently computed integrity hash matches the declaration.",
     action: "This dependency may be described as trusted.",
     requiresReview: false,
     allowInstall: true,
@@ -81,7 +81,7 @@ const DEPENDENCY_PROVENANCE_MESSAGES = Object.freeze({
   [DEPENDENCY_PROVENANCE_VERDICTS.UNVERIFIED_PUBLISHER]: Object.freeze({
     severity: "warning",
     title: "Unverified dependency publisher",
-    body: "AnxOS cannot verify who published this dependency. It is not first-party, and no trusted attestation covers it.",
+    body: "AnxHost cannot verify who published this dependency. It is not first-party, and no trusted attestation covers it.",
     action: "Review the package source before relying on it. An integrity declaration alone does not establish publisher trust.",
     requiresReview: true,
     allowInstall: true,
@@ -89,7 +89,7 @@ const DEPENDENCY_PROVENANCE_MESSAGES = Object.freeze({
   [DEPENDENCY_PROVENANCE_VERDICTS.UNSIGNED_EXECUTABLE]: Object.freeze({
     severity: "warning",
     title: "Unsigned executable dependency",
-    body: "This dependency ships executable content but carries no integrity fact AnxOS can verify.",
+    body: "This dependency ships executable content but carries no integrity fact AnxHost can verify.",
     action: "No integrity evidence is available for this dependency. Review it before executing anything from it.",
     requiresReview: true,
     allowInstall: true,
@@ -105,7 +105,7 @@ const DEPENDENCY_PROVENANCE_MESSAGES = Object.freeze({
   [DEPENDENCY_PROVENANCE_VERDICTS.UNKNOWN]: Object.freeze({
     severity: "warning",
     title: "Dependency provenance unknown",
-    body: "AnxOS found no publisher identity and no integrity facts to evaluate for this dependency.",
+    body: "AnxHost found no publisher identity and no integrity facts to evaluate for this dependency.",
     action: "Treat this dependency as unverified and review it before relying on it.",
     requiresReview: true,
     allowInstall: true,
@@ -509,7 +509,7 @@ function evaluateDependencyUpdate(current = {}, target = {}, facts = {}) {
       code: DEPENDENCY_UPDATE_CODES.SOURCE_CHANGED,
       safe: false,
       requiresReview: true,
-      reason: "The update resolves from a different source than the installed dependency; provenance would be invalidated, so AnxOS refuses to call it safe.",
+      reason: "The update resolves from a different source than the installed dependency; provenance would be invalidated, so AnxHost refuses to call it safe.",
     };
   }
 
@@ -520,7 +520,7 @@ function evaluateDependencyUpdate(current = {}, target = {}, facts = {}) {
       code: DEPENDENCY_UPDATE_CODES.INTEGRITY_UNKNOWN,
       safe: false,
       requiresReview: true,
-      reason: "No integrity fact is available for the target version, so AnxOS cannot describe this update as safe.",
+      reason: "No integrity fact is available for the target version, so AnxHost cannot describe this update as safe.",
     };
   }
 
@@ -623,7 +623,7 @@ function policeExtensionExecution(payload = {}) {
       key: "extensionIntegrity:unverified",
       code: EXTENSION_DENIAL_CODES.INTEGRITY_UNVERIFIED,
       capability: "integrity",
-      label: "No established integrity fact exists for the extension, so AnxOS refuses to execute it.",
+      label: "No established integrity fact exists for the extension, so AnxHost refuses to execute it.",
       statusCode: 403,
       liftableByGrant: false,
     });
@@ -635,8 +635,8 @@ function policeExtensionExecution(payload = {}) {
       code: EXTENSION_DENIAL_CODES.UNTRUSTED_PUBLISHER,
       capability: "publisher",
       label: publisher.kind === "none"
-        ? "The extension has no publisher identity, so AnxOS refuses to execute it."
-        : `Extension publisher "${publisher.identity}" is not first-party or attestation-verified, so AnxOS refuses to execute it.`,
+        ? "The extension has no publisher identity, so AnxHost refuses to execute it."
+        : `Extension publisher "${publisher.identity}" is not first-party or attestation-verified, so AnxHost refuses to execute it.`,
       statusCode: 403,
       liftableByGrant: false,
     });

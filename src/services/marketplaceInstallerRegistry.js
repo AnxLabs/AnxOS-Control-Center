@@ -165,7 +165,7 @@ function validateComposeTemplate(template = {}) {
   const compose = template.compose && typeof template.compose === "object" ? template.compose : {};
   const problems = [];
   if (!COMPOSE_NAME_PATTERN.test(String(compose.file || "")) || !require("fs").existsSync(shippedComposeFilePath(compose.file))) {
-    problems.push("A Compose template must name a Compose file shipped with AnxOS.");
+    problems.push("A Compose template must name a Compose file shipped with AnxHost.");
   }
   if (!COMPOSE_ENV_KEY_PATTERN.test(String(compose.portSetting || ""))) {
     problems.push("A Compose template must name the setting that holds its published port.");

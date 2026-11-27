@@ -23,13 +23,13 @@ async function invokeAlertsOperation(operation) {
 
 function registerAlertsIpc() {
   ipcMain.handle("alerts:list", async () => invokeAlertsOperation(() => {
-    requireLocalOwnerAuthenticated("alerts:list", "Unlock AnxOS to view alerts.");
+    requireLocalOwnerAuthenticated("alerts:list", "Unlock AnxHost to view alerts.");
     requirePermission("nodes:read", "alerts");
     audit({ action: "alerts.list", target: "alerts" });
     return listAlerts();
   }));
   ipcMain.handle("alerts:acknowledge", async (_, payload = {}) => invokeAlertsOperation(() => {
-    requireLocalOwnerAuthenticated("alerts:acknowledge", "Unlock AnxOS to acknowledge alerts.");
+    requireLocalOwnerAuthenticated("alerts:acknowledge", "Unlock AnxHost to acknowledge alerts.");
     requirePermission("settings:write", "alerts");
     // Only the id crosses the IPC boundary; the acknowledgement label is set
     // desktop-side (the real actor is captured by audit above).

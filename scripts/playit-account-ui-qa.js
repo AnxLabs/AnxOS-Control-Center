@@ -116,7 +116,7 @@ async function main() {
     assert.strictEqual(linkInDom, false, "no claim or sign-in link is ever in the page");
     console.log("PASS U5 the manual address is an Advanced fallback and no playit.gg link reaches the page");
 
-    assert.deepStrictEqual(rendererErrors.filter((entry) => !/Unlock AnxOS|AGENT_UNAVAILABLE/i.test(entry)), [], "no renderer errors");
+    assert.deepStrictEqual(rendererErrors.filter((entry) => !/Unlock (AnxOS|AnxHost)|AGENT_UNAVAILABLE/i.test(entry)), [], "no renderer errors");
     console.log("playit account UI QA passed (5 checks).");
   } finally {
     await app.close().catch(() => {});

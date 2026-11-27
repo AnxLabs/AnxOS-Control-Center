@@ -43,7 +43,7 @@ function registerMobileGatewayIpc() {
   owner("mobile:saveCaCertificate", "mobile.ca.export", async () => {
     const { pem, fingerprint } = mobile.caCertificate();
     const selection = await dialog.showSaveDialog({
-      title: "Save the AnxOS certificate for your phone",
+      title: "Save the AnxHost certificate for your phone",
       defaultPath: "anxos-local-ca.crt",
       filters: [{ name: "Certificate", extensions: ["crt"] }],
     });

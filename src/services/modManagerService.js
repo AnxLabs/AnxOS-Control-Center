@@ -148,7 +148,7 @@ function createCurseForgeAdapter(curseforge, options = {}) {
         curseforge.ensureConfigured(options.config || {});
         return { available: true };
       } catch (error) {
-        return { available: false, reason: "CurseForge isn't set up in this copy of AnxOS. Use Modrinth, or download the file from CurseForge yourself and import it here." , code: error?.code || "CURSEFORGE_UNAVAILABLE" };
+        return { available: false, reason: "CurseForge isn't set up in this copy of AnxHost. Use Modrinth, or download the file from CurseForge yourself and import it here." , code: error?.code || "CURSEFORGE_UNAVAILABLE" };
       }
     },
     async search(searchOptions) {
@@ -252,7 +252,7 @@ async function loadContext(payload = {}) {
 
 function assertModFileName(fileName) {
   const name = String(fileName || "");
-  if (!MOD_FILE_PATTERN.test(name) || name.includes("/") || name.includes("\\")) throw createModError("That is not an add-on file name AnxOS manages.", "MOD_FILE_INVALID");
+  if (!MOD_FILE_PATTERN.test(name) || name.includes("/") || name.includes("\\")) throw createModError("That is not an add-on file name AnxHost manages.", "MOD_FILE_INVALID");
   return name;
 }
 
@@ -507,7 +507,7 @@ async function downloadVerified(provider, version) {
   if (!file?.url) throw createModError("This version has no download the author allows. Download it from the project page and import it here.", "MOD_FILE_MISSING", 404);
   let host = "";
   try { host = new URL(file.url).hostname.toLowerCase(); } catch {}
-  if (!provider.downloadHosts.has(host)) throw createModError(`The file is not hosted on ${provider.label}'s own download servers, so AnxOS will not download it.`, "MOD_DOWNLOAD_HOST_NOT_ALLOWED", 422);
+  if (!provider.downloadHosts.has(host)) throw createModError(`The file is not hosted on ${provider.label}'s own download servers, so AnxHost will not download it.`, "MOD_DOWNLOAD_HOST_NOT_ALLOWED", 422);
   const fileName = assertModFileName(file.fileName);
   if (Number(file.size) > MAX_MOD_BYTES) throw createModError("The file is larger than 64 MB.", "MOD_FILE_TOO_LARGE", 413);
   const expected = String(file.hash?.value || "").toLowerCase();
@@ -642,7 +642,7 @@ async function checkModUpdates(payload = {}) {
 async function updateOne(loaded, manifest, fileName, payload) {
   const { instance, context } = loaded;
   const record = manifest.mods[fileName];
-  if (!record) throw createModError("Only add-ons installed by AnxOS can be updated here.", "MOD_NOT_TRACKED", 409);
+  if (!record) throw createModError("Only add-ons installed by AnxHost can be updated here.", "MOD_NOT_TRACKED", 409);
   const provider = getProvider(record.provider);
   const latest = await resolveCompatibleVersion(provider, record.projectId, context);
   if (String(latest.id) === String(record.versionId)) return { fileName, updated: false };

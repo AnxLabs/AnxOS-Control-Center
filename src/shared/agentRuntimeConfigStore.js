@@ -9,7 +9,7 @@ function configError(code, message, filePath, cause = null) {
     code,
     configPath: filePath,
     recoverySuggestion: code === "AGENT_RUNTIME_CONFIG_FUTURE_VERSION"
-      ? "Update AnxOS Control Center and the Local Agent before retrying."
+      ? "Update AnxHost Control Center and the Local Agent before retrying."
       : "Restore the Agent configuration backup from Agent Control, or repair the Local Agent configuration.",
   });
   if (cause) Object.defineProperty(error, "cause", { value: cause, enumerable: false });

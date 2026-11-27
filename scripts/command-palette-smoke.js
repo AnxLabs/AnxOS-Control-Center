@@ -84,7 +84,7 @@ assert(
 assert(
   app.includes("confirm: { title: \"Reset renderer UI state?\"") &&
     app.includes("confirm: { title: \"Rotate Agent token?\"") &&
-    app.includes("confirm: { title: \"Sign out of AnxOS account?\""),
+    app.includes("confirm: { title: \"Sign out of AnxHost account?\""),
   "Sensitive Command Palette commands must require confirmation.",
 );
 assert(

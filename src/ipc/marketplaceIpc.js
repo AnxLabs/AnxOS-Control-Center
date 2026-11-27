@@ -141,7 +141,7 @@ function getMarketplaceUiError(error) {
         ...details,
         provider,
         providerName,
-        friendlyMessage: details.friendlyMessage || "This provider does not allow AnxOS to download one required file automatically.",
+        friendlyMessage: details.friendlyMessage || "This provider does not allow AnxHost to download one required file automatically.",
         file: details.file || details.fileName || null,
         fileName: details.fileName || details.file || null,
         projectId: details.projectId || null,

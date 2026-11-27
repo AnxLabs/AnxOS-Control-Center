@@ -185,7 +185,7 @@ const DECLARED_PROVIDER_LIMITS = Object.freeze({
       udp: declaredLimit("supported", "udp", true, "Declared capability: Manual Port Forwarding advertises UDP exposure."),
     }),
     limits: Object.freeze({
-      maxPublicHostnames: unknownLimit("There is no provider API here; whether the ISP or router allows a hostname is outside AnxOS and unverified."),
+      maxPublicHostnames: unknownLimit("There is no provider API here; whether the ISP or router allows a hostname is outside AnxHost and unverified."),
       maxConcurrentTunnels: declaredLimit("unsupported", null, null, "Not a tunnel provider."),
       maxPortsPerService: unknownLimit("No verified router or ISP limit for ports per service."),
       bandwidth: unknownLimit("No verified ISP bandwidth or port-blocking limit."),
@@ -193,18 +193,18 @@ const DECLARED_PROVIDER_LIMITS = Object.freeze({
   }),
   "anxos-relay": Object.freeze({
     providerId: "anxos-relay",
-    providerName: "AnxOS Relay",
+    providerName: "AnxHost Relay",
     status: "disabled",
     exposureScope: "unavailable",
     mechanisms: Object.freeze({
-      [EXPOSURE_MECHANISMS.httpRouting]: unavailableLimit("The AnxOS Relay backend does not exist in this build; no routing capability is established."),
-      [EXPOSURE_MECHANISMS.rawPort]: unavailableLimit("The AnxOS Relay backend does not exist in this build; no port exposure capability is established."),
+      [EXPOSURE_MECHANISMS.httpRouting]: unavailableLimit("The AnxHost Relay backend does not exist in this build; no routing capability is established."),
+      [EXPOSURE_MECHANISMS.rawPort]: unavailableLimit("The AnxHost Relay backend does not exist in this build; no port exposure capability is established."),
     }),
     protocols: Object.freeze({
-      http: unavailableLimit("The AnxOS Relay backend does not exist in this build; no protocol capability is established."),
-      https: unavailableLimit("The AnxOS Relay backend does not exist in this build; no protocol capability is established."),
-      tcp: unavailableLimit("The AnxOS Relay backend does not exist in this build; no protocol capability is established."),
-      udp: unavailableLimit("The AnxOS Relay backend does not exist in this build; no UDP capability is documented. Reported unknown, never as supported or as a fabricated limit."),
+      http: unavailableLimit("The AnxHost Relay backend does not exist in this build; no protocol capability is established."),
+      https: unavailableLimit("The AnxHost Relay backend does not exist in this build; no protocol capability is established."),
+      tcp: unavailableLimit("The AnxHost Relay backend does not exist in this build; no protocol capability is established."),
+      udp: unavailableLimit("The AnxHost Relay backend does not exist in this build; no UDP capability is documented. Reported unknown, never as supported or as a fabricated limit."),
     }),
     limits: Object.freeze({
       maxPublicHostnames: unavailableLimit("Provider unavailable; no limit is established."),
@@ -215,7 +215,7 @@ const DECLARED_PROVIDER_LIMITS = Object.freeze({
   }),
 });
 
-const UNKNOWN_PROVIDER_NOTE = "AnxOS has no declared exposure limits for this provider id; every limit is reported unknown.";
+const UNKNOWN_PROVIDER_NOTE = "AnxHost has no declared exposure limits for this provider id; every limit is reported unknown.";
 
 function normalizeExposureProtocol(value) {
   const protocol = String(value ?? "").trim().toLowerCase();
@@ -335,7 +335,7 @@ function evaluateProviderExposure(input = {}) {
       outcome: "unknown",
       satisfiable: null,
       reason: "EXPOSURE_PROVIDER_UNKNOWN",
-      message: `${UNKNOWN_PROVIDER_NOTE} AnxOS cannot confirm ${protocol.toUpperCase()} exposure through ${mechanism}.`,
+      message: `${UNKNOWN_PROVIDER_NOTE} AnxHost cannot confirm ${protocol.toUpperCase()} exposure through ${mechanism}.`,
     };
   }
 

@@ -42,7 +42,7 @@ const serviceRouter = fs.readFileSync(path.join(root, "src/services/serviceRoute
 ].forEach((needle) => assert(doc.includes(needle), `Architecture doc should include ${needle}`));
 
 [
-  "One machine or server = one independently running AnxOS Agent.",
+  "One machine or server = one independently running AnxHost Agent.",
   'data-node-action="test-form"',
   'data-node-field="enabled"',
   'data-node-field="tags"',

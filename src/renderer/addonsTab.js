@@ -195,7 +195,7 @@
     if (kind === "remove") {
       const ok = await createSecurityConfirmation({
         title: `Remove ${mod.title}?`,
-        message: `${mod.fileName} is taken out of the server. AnxOS keeps a copy in the add-on backups folder in case you want it back.`,
+        message: `${mod.fileName} is taken out of the server. AnxHost keeps a copy in the add-on backups folder in case you want it back.`,
         confirmLabel: "Remove",
       });
       if (!ok) return;
@@ -224,7 +224,7 @@
     const result = await runJob("Checking for updates…", "Check add-on updates", async (target, payload) => unwrap(await api().checkUpdates(target.id, payload), "Update check failed."));
     if (!result) return;
     state.updates = new Map((result.updates || []).map((update) => [update.fileName, update]));
-    showToast(state.updates.size ? `${state.updates.size} update${state.updates.size === 1 ? "" : "s"} available.` : "Everything installed through AnxOS is up to date.", state.updates.size ? "warning" : "success");
+    showToast(state.updates.size ? `${state.updates.size} update${state.updates.size === 1 ? "" : "s"} available.` : "Everything installed through AnxHost is up to date.", state.updates.size ? "warning" : "success");
     render();
   }
 
@@ -419,7 +419,7 @@
       note.hidden = !showNote || (curseforge?.available && state.provider !== "curseforge");
       note.textContent = curseforge && !curseforge.available
         ? curseforge.reason
-        : "Some CurseForge authors only allow downloads on CurseForge's website. AnxOS shows those as unavailable rather than working around it; download them there and use Import a file.";
+        : "Some CurseForge authors only allow downloads on CurseForge's website. AnxHost shows those as unavailable rather than working around it; download them there and use Import a file.";
     }
     const results = $("[data-mods-results]");
     const installedIds = new Set(mods.filter((mod) => mod.provider).map((mod) => `${mod.provider}:${mod.projectId}`));

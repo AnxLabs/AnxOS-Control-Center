@@ -42,7 +42,7 @@ const DEFAULT_FLAGS = [
   },
   {
     name: "account.webDeviceLogin",
-    description: "Shows the optional Sign in with AnxOS device authorization flow.",
+    description: "Shows the optional Sign in with AnxHost device authorization flow.",
     environment: "local",
     productionSafe: true,
     requiresRestart: false,
@@ -488,7 +488,7 @@ function assertApprovedApiUrl(rawUrl) {
   try {
     parsed = new URL(rawUrl);
   } catch {
-    const error = new Error("Enter a valid local AnxOS or configured agent URL.");
+    const error = new Error("Enter a valid local AnxHost or configured agent URL.");
     error.code = "API_URL_INVALID";
     throw error;
   }
@@ -498,7 +498,7 @@ function assertApprovedApiUrl(rawUrl) {
     throw error;
   }
   if (!getApprovedApiOrigins().has(parsed.origin)) {
-    const error = new Error("API Tester is restricted to local AnxOS services and configured agents.");
+    const error = new Error("API Tester is restricted to local AnxHost services and configured agents.");
     error.code = "API_ORIGIN_DENIED";
     throw error;
   }
@@ -651,7 +651,7 @@ async function runCommand(payload = {}, event = null) {
     return { ok: true, command, message: "Mock workspace page created." };
   }
   if (command.id === "test-notifications") {
-    new Notification({ title: "AnxOS", body: "Owner Workspace notification test." }).show();
+    new Notification({ title: "AnxHost", body: "Owner Workspace notification test." }).show();
     return { ok: true, command, message: "Notification sent." };
   }
   if (command.id === "refresh-agent-connections") {

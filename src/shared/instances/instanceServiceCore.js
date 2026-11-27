@@ -1006,7 +1006,7 @@ async function executeSteamCmdUpdate(instanceId, request = {}) {
   try {
     const result = await executeSteamCmdUpdateUnobserved(instanceId, request);
     if (result.buildChanged) {
-      emitInstanceEvent("update.succeeded", { instanceId: String(instanceId), message: `AnxOS: ${instanceId} updated to Steam build ${result.buildIdAfter} (was ${result.buildIdBefore || "unknown"}).` });
+      emitInstanceEvent("update.succeeded", { instanceId: String(instanceId), message: `AnxHost: ${instanceId} updated to Steam build ${result.buildIdAfter} (was ${result.buildIdBefore || "unknown"}).` });
     }
     return result;
   } catch (error) {
@@ -1017,8 +1017,8 @@ async function executeSteamCmdUpdate(instanceId, request = {}) {
       // "left on build X" is only claimed when nothing says otherwise.
       const interrupted = error.code === "STEAMCMD_UPDATE_TIMEOUT" && !isSteamInstallConsistent(error.stateFlagsAfter);
       const message = interrupted
-        ? `AnxOS: SteamCMD update for ${instanceId} failed (${error.code}${error.stalled ? ", no progress" : ""}) and SteamCMD was stopped before it finished. The server files may be incomplete (manifest build ${error.buildIdAfter || error.buildIdBefore || "unknown"}); run the update again before starting the server.`
-        : `AnxOS: SteamCMD update for ${instanceId} failed (${error.code}). Server files were left on build ${error.buildIdBefore || "unknown"}.`;
+        ? `AnxHost: SteamCMD update for ${instanceId} failed (${error.code}${error.stalled ? ", no progress" : ""}) and SteamCMD was stopped before it finished. The server files may be incomplete (manifest build ${error.buildIdAfter || error.buildIdBefore || "unknown"}); run the update again before starting the server.`
+        : `AnxHost: SteamCMD update for ${instanceId} failed (${error.code}). Server files were left on build ${error.buildIdBefore || "unknown"}.`;
       emitInstanceEvent("update.failed", { instanceId: String(instanceId), message });
     }
     throw error;
@@ -2934,7 +2934,7 @@ function getDefaultFiveMServerConfig(config = {}) {
     `endpoint_add_udp "0.0.0.0:${port}"`,
     `sv_hostname "${name}"`,
     `sets sv_projectName "${name}"`,
-    'sets sv_projectDesc "Managed by AnxOS"',
+    'sets sv_projectDesc "Managed by AnxHost"',
     "sv_maxclients 32",
     'sv_licenseKey "CHANGE_ME_FIVEM_LICENSE_KEY"',
     "# Default Cfx.re resources provisioned from cfx-server-data during install.",
@@ -7057,7 +7057,7 @@ async function startInstanceImpl(instanceId, options = {}) {
       if (failed && !requestedStop) {
         emitInstanceEvent("instance.crashed", {
           instanceId: config.id,
-          message: `AnxOS: ${updatedConfig.displayName || config.id} stopped unexpectedly (exit code ${exitCode ?? "none"}${signal ? `, signal ${signal}` : ""}${resolvedFailureReason ? `, ${resolvedFailureReason}` : ""}).`,
+          message: `AnxHost: ${updatedConfig.displayName || config.id} stopped unexpectedly (exit code ${exitCode ?? "none"}${signal ? `, signal ${signal}` : ""}${resolvedFailureReason ? `, ${resolvedFailureReason}` : ""}).`,
         });
       }
       if (earlyCleanExit && entry?.outputTail?.length) {
@@ -7349,7 +7349,7 @@ function isProcessGroupAlive(groupId) {
 function assertPersistedPidProven(config, entry) {
   if (!config?.runtimeIdentityUnverified || entry?.child?.pid) return;
   const error = createInstanceError("INSTANCE_PID_UNVERIFIED", 409, { instanceId: config.id, pid: normalizePid(config.pid) });
-  error.message = `AnxOS couldn't confirm that process ${normalizePid(config.pid) || "?"} is still this server (the check timed out, the computer may be busy). Nothing was stopped. Try again in a moment.`;
+  error.message = `AnxHost couldn't confirm that process ${normalizePid(config.pid) || "?"} is still this server (the check timed out, the computer may be busy). Nothing was stopped. Try again in a moment.`;
   throw error;
 }
 

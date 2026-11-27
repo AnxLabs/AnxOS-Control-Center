@@ -1319,7 +1319,7 @@ function getSecurityDashboard(options = {}) {
       diagnosticsIssues: events.filter((event) => event.diagnosticIssue).slice(0, 5).map((event) => event.diagnosticIssue),
     },
     accountProtection: {
-      provider: status.accountAuthenticated ? "AnxOS Account" : status.authenticated ? "Local owner" : "Not signed in",
+      provider: status.accountAuthenticated ? "AnxHost Account" : status.authenticated ? "Local owner" : "Not signed in",
       emailVerification: status.accountAuthenticated ? "Unavailable" : "Not connected",
       sessionExpiration: state.settings.inactiveSessionExpirationMs
         ? `${Math.round(state.settings.inactiveSessionExpirationMs / 86400000)} day${Math.round(state.settings.inactiveSessionExpirationMs / 86400000) === 1 ? "" : "s"}`
@@ -1332,7 +1332,7 @@ function getSecurityDashboard(options = {}) {
     permissions: [
       {
         id: "account",
-        name: status.user?.account ? "AnxOS account" : "Local owner session",
+        name: status.user?.account ? "AnxHost account" : "Local owner session",
         state: status.user?.account ? "Connected" : status.authenticated ? "Active" : "Unavailable",
         detail: status.user?.username || "No signed-in account reported.",
       },
@@ -1974,7 +1974,7 @@ function requireOwner(target = "owner-workspace") {
   return status.user;
 }
 
-function requireLocalOwnerAuthenticated(target = "protected-local-action", message = "Unlock AnxOS to continue.") {
+function requireLocalOwnerAuthenticated(target = "protected-local-action", message = "Unlock AnxHost to continue.") {
   authRecovery.requireLocalCredentialsUnlocked(target, message);
   const status = getStatus();
   if (!status.localOwnerAuthenticated) {
@@ -2011,7 +2011,7 @@ function rotateAgentToken() {
     configured: true,
     fingerprint: rotated.fingerprint,
     restartRequired: true,
-    message: "Agent token rotated. Restart the AnxOS agent and desktop app so both reload the shared token.",
+    message: "Agent token rotated. Restart the AnxHost agent and desktop app so both reload the shared token.",
   };
 }
 

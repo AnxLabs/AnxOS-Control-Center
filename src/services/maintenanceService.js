@@ -108,7 +108,7 @@ function getCategoryDefinitions(options = {}) {
     {
       id: "temporary-files",
       displayName: "Temporary Files",
-      description: "AnxOS-owned temporary files under the operating system temp directory.",
+      description: "AnxHost-owned temporary files under the operating system temp directory.",
       path: path.join(temp, "AnxHub"),
       cleanup: "contents",
       restartRequired: false,

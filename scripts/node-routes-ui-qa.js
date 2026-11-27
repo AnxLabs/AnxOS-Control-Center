@@ -88,7 +88,7 @@ async function main() {
     assert.strictEqual(modal.closed, true, "the panel closes");
     console.log("PASS N2 the Routes panel lists addresses and tunnel controls, and closes cleanly");
 
-    assert.deepStrictEqual(rendererErrors.filter((entry) => !/Unlock AnxOS|AGENT_UNAVAILABLE/i.test(entry)), [], "no renderer errors");
+    assert.deepStrictEqual(rendererErrors.filter((entry) => !/Unlock (AnxOS|AnxHost)|AGENT_UNAVAILABLE/i.test(entry)), [], "no renderer errors");
     console.log("node routes UI QA passed (2 checks).");
   } finally {
     await app.close().catch(() => {});

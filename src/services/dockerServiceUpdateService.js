@@ -76,7 +76,7 @@ function buildReplacementSpec(entry, template) {
   const name = String(entry?.Name || "").replace(/^\//, "");
   if (!SAFE_NAME.test(name)) throw updateError("The container's name cannot be used for an update.", "DOCKER_UPDATE_NAME_INVALID");
   const image = String(entry?.Config?.Image || "");
-  if (!image || image.startsWith("sha256:")) throw updateError("The container does not record which image tag it runs, so AnxOS cannot look for a newer one.", "DOCKER_UPDATE_IMAGE_UNKNOWN");
+  if (!image || image.startsWith("sha256:")) throw updateError("The container does not record which image tag it runs, so AnxHost cannot look for a newer one.", "DOCKER_UPDATE_IMAGE_UNKNOWN");
 
   const env = envMap(entry?.Config?.Env);
   const environment = {};
@@ -95,7 +95,7 @@ function buildReplacementSpec(entry, template) {
     } else if (mount?.Type === "volume" && !mount.Name) {
       // An anonymous volume the image declares; the new image declares its own.
     } else {
-      throw updateError(`The container has a mount AnxOS did not create (${mount?.Destination || "unknown"}), so it was not updated. Update it on the Docker page.`, "DOCKER_UPDATE_UNEXPECTED_MOUNT", { destination: mount?.Destination || null });
+      throw updateError(`The container has a mount AnxHost did not create (${mount?.Destination || "unknown"}), so it was not updated. Update it on the Docker page.`, "DOCKER_UPDATE_UNEXPECTED_MOUNT", { destination: mount?.Destination || null });
     }
   }
 
@@ -163,11 +163,11 @@ async function updateDockerService(containerName, deps) {
     throw updateError(`This container belongs to the Compose project "${labels["com.docker.compose.project"]}". Update the project instead (Docker page, Compose, Recreate after pulling).`, "DOCKER_UPDATE_COMPOSE");
   }
   if (labels["anxos.managed"] !== "true") {
-    throw updateError("AnxOS did not install this container, so it does not know which of its settings are yours. Update it with the tool that created it.", "DOCKER_UPDATE_NOT_MANAGED");
+    throw updateError("AnxHost did not install this container, so it does not know which of its settings are yours. Update it with the tool that created it.", "DOCKER_UPDATE_NOT_MANAGED");
   }
   const template = labels["anxos.template"] ? await deps.findTemplate(labels["anxos.template"]) : null;
   if (!template?.docker) {
-    throw updateError(`The catalog entry "${labels["anxos.template"] || "unknown"}" this service came from is not available, so AnxOS cannot tell which settings to keep.`, "DOCKER_UPDATE_TEMPLATE_MISSING");
+    throw updateError(`The catalog entry "${labels["anxos.template"] || "unknown"}" this service came from is not available, so AnxHost cannot tell which settings to keep.`, "DOCKER_UPDATE_TEMPLATE_MISSING");
   }
   const spec = buildReplacementSpec(entry, template);
   const wasRunning = entry?.State?.Running === true;
@@ -219,7 +219,7 @@ async function updateDockerService(containerName, deps) {
       restored = false;
     }
     step("rollback", restored ? "complete" : "failed", restored
-      ? `The previous container (old image) is back${wasRunning ? " and running" : ""}. Its volumes were not changed by AnxOS; if the new version already changed its data, the old version may not read it.`
+      ? `The previous container (old image) is back${wasRunning ? " and running" : ""}. Its volumes were not changed by AnxHost; if the new version already changed its data, the old version may not read it.`
       : `The previous container could not be restored automatically; it is kept as ${previousName}. Rename it back on the Docker page.`);
     throw Object.assign(error, { steps, details: { ...(error.details || {}), rolledBack: restored, previousName } });
   }

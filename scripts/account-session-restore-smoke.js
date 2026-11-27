@@ -164,7 +164,7 @@ async function main() {
     const second = await service.restoreSession();
     assert.strictEqual(first.state, "locked_recoverable", "decrypt failure must enter the recoverable locked state.");
     assert.strictEqual(second.state, "locked_recoverable", "recoverable lock must be remembered without retrying the broken session.");
-    assert.strictEqual(first.message, "Your saved session could not be restored. Please unlock AnxOS again.");
+    assert.strictEqual(first.message, "Your saved session could not be restored. Please unlock AnxHost again.");
     assert(!first.message.includes("SECURE_SESSION_DECRYPT_FAILED"), "normal account status must not expose the raw decrypt code.");
     assert.strictEqual(fs.readFileSync(accountPath, "utf8").includes("unreadable-session"), false, "encrypted session contents must not be returned in status.");
     assert(fs.readdirSync(configDir).some((name) => name.includes(".undecryptable-") && name.endsWith(".backup")), "the unreadable encrypted session must be preserved.");

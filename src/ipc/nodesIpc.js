@@ -53,28 +53,28 @@ function registerNodesIpc() {
     return restorePersistedActiveNode({ readOnly: getStatus().localOwnerAuthenticated !== true });
   }));
   ipcMain.handle("nodes:save", async (_, payload = {}) => invokeNodeOperation(() => {
-    requireLocalOwnerAuthenticated("nodes:save", "Unlock AnxOS to manage nodes.");
+    requireLocalOwnerAuthenticated("nodes:save", "Unlock AnxHost to manage nodes.");
     requirePermission("settings:write", "nodes");
     audit({ action: "node.save", target: payload.id || payload.agentUrl });
     return saveNode(payload);
   }));
   ipcMain.handle("nodes:delete", async (_, payload = {}) => invokeNodeOperation(() => {
     const context = requireNodeContext(payload, "node deletion");
-    requireLocalOwnerAuthenticated("nodes:delete", "Unlock AnxOS to manage nodes.");
+    requireLocalOwnerAuthenticated("nodes:delete", "Unlock AnxHost to manage nodes.");
     requirePermission("settings:write", context.nodeId);
     audit({ action: "node.delete", target: context.nodeId });
     return deleteNode(context.nodeId);
   }));
   ipcMain.handle("nodes:disconnect", async (_, payload = {}) => invokeNodeOperation(() => {
     const context = requireNodeContext(payload, "node disconnect");
-    requireLocalOwnerAuthenticated("nodes:disconnect", "Unlock AnxOS to manage nodes.");
+    requireLocalOwnerAuthenticated("nodes:disconnect", "Unlock AnxHost to manage nodes.");
     requirePermission("settings:write", context.nodeId);
     audit({ action: "node.disconnect", target: context.nodeId });
     return disconnectNode(context.nodeId);
   }));
   ipcMain.handle("nodes:reconnect", async (_, payload = {}) => invokeNodeOperation(() => {
     const context = requireNodeContext(payload, "node reconnect");
-    requireLocalOwnerAuthenticated("nodes:reconnect", "Unlock AnxOS to manage nodes.");
+    requireLocalOwnerAuthenticated("nodes:reconnect", "Unlock AnxHost to manage nodes.");
     requirePermission("settings:write", context.nodeId);
     audit({ action: "node.reconnect", target: context.nodeId });
     return reconnectNode(context.nodeId);
@@ -87,7 +87,7 @@ function registerNodesIpc() {
   }));
   ipcMain.handle("nodes:setTransport", async (_, payload = {}) => invokeNodeOperation(() => {
     const context = requireNodeContext(payload, "node transport");
-    requireLocalOwnerAuthenticated("nodes:set-transport", "Unlock AnxOS to manage nodes.");
+    requireLocalOwnerAuthenticated("nodes:set-transport", "Unlock AnxHost to manage nodes.");
     requirePermission("settings:write", context.nodeId);
     audit({ action: "node.set-transport", target: context.nodeId });
     const node = setNodeTransport(context.nodeId, payload.transport || {});
@@ -97,7 +97,7 @@ function registerNodesIpc() {
   }));
   ipcMain.handle("nodes:reconnectTunnel", async (_, payload = {}) => invokeNodeOperation(() => {
     const context = requireNodeContext(payload, "node tunnel reconnect");
-    requireLocalOwnerAuthenticated("nodes:reconnect-tunnel", "Unlock AnxOS to manage nodes.");
+    requireLocalOwnerAuthenticated("nodes:reconnect-tunnel", "Unlock AnxHost to manage nodes.");
     requirePermission("settings:write", context.nodeId);
     audit({ action: "node.reconnect-tunnel", target: context.nodeId });
     const tunnels = getNodeTunnelService();
@@ -119,7 +119,7 @@ function registerNodesIpc() {
   }));
   ipcMain.handle("nodes:setFallbackUrls", async (_, payload = {}) => invokeNodeOperation(async () => {
     const context = requireNodeContext(payload, "node fallback routes");
-    requireLocalOwnerAuthenticated("nodes:set-fallback-urls", "Unlock AnxOS to manage nodes.");
+    requireLocalOwnerAuthenticated("nodes:set-fallback-urls", "Unlock AnxHost to manage nodes.");
     requirePermission("settings:write", context.nodeId);
     audit({ action: "node.set-fallback-urls", target: context.nodeId });
     const node = setNodeFallbackUrls(context.nodeId, payload.fallbackUrls || []);
@@ -127,22 +127,22 @@ function registerNodesIpc() {
     const route = stored ? await getNodeRouteResolver().checkNode(stored).catch(() => null) : null;
     return { node, route };
   }));
-  ipcMain.handle("nodes:select", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:select", "Unlock AnxOS to manage nodes."); requirePermission("nodes:read", payload.nodeId); return setActiveNode(requireNodeContext(payload, "node selection").nodeId, { reason: "ipc-select" }); }));
-  ipcMain.handle("nodes:test", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:test", "Unlock AnxOS to use saved node credentials."); requirePermission("nodes:read", payload.nodeId); return testNode(requireNodeContext(payload, "node connection test").nodeId); }));
+  ipcMain.handle("nodes:select", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:select", "Unlock AnxHost to manage nodes."); requirePermission("nodes:read", payload.nodeId); return setActiveNode(requireNodeContext(payload, "node selection").nodeId, { reason: "ipc-select" }); }));
+  ipcMain.handle("nodes:test", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:test", "Unlock AnxHost to use saved node credentials."); requirePermission("nodes:read", payload.nodeId); return testNode(requireNodeContext(payload, "node connection test").nodeId); }));
   ipcMain.handle("nodes:testConnection", async (_, payload = {}) => invokeNodeOperation(() => {
-    requireLocalOwnerAuthenticated("nodes:test-connection", "Unlock AnxOS to use saved node credentials.");
+    requireLocalOwnerAuthenticated("nodes:test-connection", "Unlock AnxHost to use saved node credentials.");
     requirePermission("settings:write", payload.agentUrl || payload.url || "node-connection-test");
     return testNodeConnectionPayload(payload);
   }));
-  ipcMain.handle("nodes:health", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:health", "Unlock AnxOS to use saved node credentials."); requirePermission("nodes:read", payload.nodeId); return checkNodeHealth(requireNodeContext(payload, "node health check").nodeId); }));
-  ipcMain.handle("nodes:healthAll", async () => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:health-all", "Unlock AnxOS to use saved node credentials."); requirePermission("nodes:read", "nodes"); return checkAllNodeHealth(); }));
+  ipcMain.handle("nodes:health", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:health", "Unlock AnxHost to use saved node credentials."); requirePermission("nodes:read", payload.nodeId); return checkNodeHealth(requireNodeContext(payload, "node health check").nodeId); }));
+  ipcMain.handle("nodes:healthAll", async () => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:health-all", "Unlock AnxHost to use saved node credentials."); requirePermission("nodes:read", "nodes"); return checkAllNodeHealth(); }));
   // V2-G Wave 2 fleet aggregation: read-only roll-up plus controlled batch
   // actions. The batch channel is authorized once for the fleet-scope request
   // here; every target inside it is still resolved against the registry and
   // audited per node by runFleetBatchAction/the result records below.
-  ipcMain.handle("nodes:fleetSummary", async () => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:fleet-summary", "Unlock AnxOS to use saved node credentials."); requirePermission("nodes:read", "nodes"); return getFleetSummary(); }));
+  ipcMain.handle("nodes:fleetSummary", async () => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:fleet-summary", "Unlock AnxHost to use saved node credentials."); requirePermission("nodes:read", "nodes"); return getFleetSummary(); }));
   ipcMain.handle("nodes:fleetBatch", async (_, payload = {}) => invokeNodeOperation(async () => {
-    requireLocalOwnerAuthenticated("nodes:fleet-batch", "Unlock AnxOS to manage nodes.");
+    requireLocalOwnerAuthenticated("nodes:fleet-batch", "Unlock AnxHost to manage nodes.");
     requirePermission("settings:write", "nodes");
     audit({ action: "node.fleet-batch", target: payload.action || "unknown-action" });
     const outcome = await runFleetBatchAction(payload);
@@ -154,22 +154,22 @@ function registerNodesIpc() {
     }));
     return outcome;
   }));
-  ipcMain.handle("nodes:credentialStatus", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:credential-status", "Unlock AnxOS to use saved node credentials."); requirePermission("nodes:read", payload.nodeId); return getNodeCredentialStatus(requireNodeContext(payload, "node credential status").nodeId); }));
+  ipcMain.handle("nodes:credentialStatus", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:credential-status", "Unlock AnxHost to use saved node credentials."); requirePermission("nodes:read", payload.nodeId); return getNodeCredentialStatus(requireNodeContext(payload, "node credential status").nodeId); }));
   ipcMain.handle("nodes:repairCredential", async (_, payload = {}) => invokeNodeOperation(() => {
     const context = requireNodeContext(payload, "node credential repair");
-    requireLocalOwnerAuthenticated("nodes:repair-credential", "Unlock AnxOS to manage nodes.");
+    requireLocalOwnerAuthenticated("nodes:repair-credential", "Unlock AnxHost to manage nodes.");
     requirePermission("settings:write", context.nodeId);
     audit({ action: "node.repair-credential", target: context.nodeId });
     return repairNodeCredential(context);
   }));
   ipcMain.handle("nodes:generateToken", async () => invokeNodeOperation(() => {
-    requireLocalOwnerAuthenticated("nodes:generate-token", "Unlock AnxOS to manage nodes.");
+    requireLocalOwnerAuthenticated("nodes:generate-token", "Unlock AnxHost to manage nodes.");
     requirePermission("settings:write", "nodes");
     audit({ action: "node.generate-token", target: "node-agent-token" });
     return { token: generateAgentToken(), tokenFormat: "anxos-base64url-v1" };
   }));
   ipcMain.handle("nodes:pair", async (_, payload = {}) => invokeNodeOperation(async () => {
-    requireLocalOwnerAuthenticated("nodes:pair", "Unlock AnxOS to manage nodes.");
+    requireLocalOwnerAuthenticated("nodes:pair", "Unlock AnxHost to manage nodes.");
     requirePermission("settings:write", "nodes");
     const paired = await pairNodeFromCode(payload);
     audit({ action: "node.pair-agent", target: paired.node?.id || paired.selectedNodeId || "paired-node" });
@@ -228,7 +228,7 @@ function registerNodesIpc() {
   };
   ipcMain.handle("nodes:updateAgent", async (_, payload = {}) => invokeNodeOperation(async () => {
     const context = requireNodeContext(payload, "node agent update");
-    requireLocalOwnerAuthenticated("nodes:update-agent", "Unlock AnxOS to update a node Agent.");
+    requireLocalOwnerAuthenticated("nodes:update-agent", "Unlock AnxHost to update a node Agent.");
     requirePermission("settings:write", context.nodeId);
     audit({ action: "node.update-agent", target: context.nodeId });
     const overview = await agentUpdateOverview().catch(() => null);
@@ -251,7 +251,7 @@ function registerNodesIpc() {
       // The node reports a newer Agent than this Desktop bundles; the service
       // refuses the downgrade, so point the user at the supported path.
       if (error?.code === "AGENT_DOWNGRADE_REFUSED") {
-        throw Object.assign(error, { suggestion: "Update AnxOS Control Center to get a newer bundled Agent instead of downgrading this node." });
+        throw Object.assign(error, { suggestion: "Update AnxHost Control Center to get a newer bundled Agent instead of downgrading this node." });
       }
       throw error;
     }
@@ -259,12 +259,12 @@ function registerNodesIpc() {
   // Fleet Agent versions against this Desktop's bundled build, and Update All
   // (one computer at a time, same checks and history as a single update).
   ipcMain.handle("nodes:agentUpdateOverview", async () => invokeNodeOperation(async () => {
-    requireLocalOwnerAuthenticated("nodes:agent-update-overview", "Unlock AnxOS to see Agent versions.");
+    requireLocalOwnerAuthenticated("nodes:agent-update-overview", "Unlock AnxHost to see Agent versions.");
     requirePermission("settings:write", "agent-updates");
     return agentUpdateOverview();
   }));
   ipcMain.handle("nodes:updateAllAgents", async () => invokeNodeOperation(async () => {
-    requireLocalOwnerAuthenticated("nodes:update-all-agents", "Unlock AnxOS to update Agents.");
+    requireLocalOwnerAuthenticated("nodes:update-all-agents", "Unlock AnxHost to update Agents.");
     requirePermission("settings:write", "agent-updates");
     audit({ action: "node.update-all-agents", target: "fleet" });
     const overview = await agentUpdateOverview();
@@ -280,12 +280,12 @@ function registerNodesIpc() {
   // them on; agent-auto-update.json is the one place the choice is stored and
   // the scheduler reads it on every tick.
   ipcMain.handle("nodes:getAgentAutoUpdate", async () => invokeNodeOperation(async () => {
-    requireLocalOwnerAuthenticated("nodes:agent-auto-update", "Unlock AnxOS to see automatic Agent updates.");
+    requireLocalOwnerAuthenticated("nodes:agent-auto-update", "Unlock AnxHost to see automatic Agent updates.");
     requirePermission("settings:write", "agent-updates");
     return { policy: readAutoUpdatePolicy(agentUpdateConfigDir()), history: readUpdateHistory(agentUpdateConfigDir()).slice(0, 50) };
   }));
   ipcMain.handle("nodes:setAgentAutoUpdate", async (_, payload = {}) => invokeNodeOperation(async () => {
-    requireLocalOwnerAuthenticated("nodes:agent-auto-update", "Unlock AnxOS to change automatic Agent updates.");
+    requireLocalOwnerAuthenticated("nodes:agent-auto-update", "Unlock AnxHost to change automatic Agent updates.");
     requirePermission("settings:write", "agent-updates");
     const policy = writeAutoUpdatePolicy(agentUpdateConfigDir(), payload.policy || {});
     audit({ action: "node.agent-auto-update.set", target: "fleet", enabled: policy.enabled, mode: policy.mode, computers: policy.nodeIds.length });
@@ -312,7 +312,7 @@ function registerNodesIpc() {
   ipcMain.handle("nodes:controlAgent", async (_, payload = {}) => invokeNodeOperation(async () => {
     const context = requireNodeContext(payload, "node agent lifecycle");
     const action = String(payload.action || "");
-    requireLocalOwnerAuthenticated("nodes:control-agent", "Unlock AnxOS to control a node Agent.");
+    requireLocalOwnerAuthenticated("nodes:control-agent", "Unlock AnxHost to control a node Agent.");
     requirePermission("settings:write", context.nodeId);
     audit({ action: `node.agent-${["start", "stop", "restart"].includes(action) ? action : "invalid"}`, target: context.nodeId });
     return getRemoteAgentLifecycleService().control(context.nodeId, action);
@@ -322,7 +322,7 @@ function registerNodesIpc() {
   // disabled until it passes.
   ipcMain.handle("nodes:verifyAgentControl", async (_, payload = {}) => invokeNodeOperation(async () => {
     const context = requireNodeContext(payload, "node agent access check");
-    requireLocalOwnerAuthenticated("nodes:verify-agent-control", "Unlock AnxOS to check access to a node Agent.");
+    requireLocalOwnerAuthenticated("nodes:verify-agent-control", "Unlock AnxHost to check access to a node Agent.");
     requirePermission("settings:write", context.nodeId);
     audit({ action: "node.agent-verify-access", target: context.nodeId });
     return getRemoteAgentLifecycleService().verify(context.nodeId);
@@ -332,7 +332,7 @@ function registerNodesIpc() {
   // credential that grants full access to the node.
   ipcMain.handle("nodes:createMobilePairing", async (_, payload = {}) => invokeNodeOperation(async () => {
     const context = requireNodeContext(payload, "node mobile pairing");
-    requireLocalOwnerAuthenticated("nodes:create-mobile-pairing", "Unlock AnxOS to pair a mobile device.");
+    requireLocalOwnerAuthenticated("nodes:create-mobile-pairing", "Unlock AnxHost to pair a mobile device.");
     requirePermission("settings:write", context.nodeId);
     audit({ action: "node.create-mobile-pairing", target: context.nodeId });
     return createMobilePairing(context.nodeId);

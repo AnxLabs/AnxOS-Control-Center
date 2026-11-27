@@ -8,7 +8,7 @@ Plan: `PLANS.md` (Build 217 section). Protocol: `AGENTS.md` (ADP).
 | --- | --- |
 | Plan | Written 2026-11-27 (Build 217 section at the top of `PLANS.md`; the Build 216 plan is kept below it). |
 | 217-A Performance | **Complete; local checkpoint commit** (not pushed). The time until the shell appears is down 65% (8.7 s to 3.1 s), Home's idle Agent requests are down 26%, and My Servers no longer rebuilds rows on each poll. Memory is down 1-3%; the target needs the owner's startup-sound decision. |
-| 217-B UI polish | Not started |
+| 217-B UI polish | **Complete; local checkpoint commit** (not pushed). The last on-screen "AnxOS" wording now says AnxHost (frozen identifiers kept). Add Server search matches every word. The light theme's Computer details chips now pass contrast. 1,573 capabilities kept. |
 | 217-C Domain and account | Not started |
 | 217-E Installer and update reliability | Not started |
 | 217-F Mobile | Not started |
@@ -26,6 +26,7 @@ Plan: `PLANS.md` (Build 217 section). Protocol: `AGENTS.md` (ADP).
 | Phase | Start | Finish | Elapsed |
 | --- | --- | --- | --- |
 | Plan and 217-A | 2026-11-27T10:28:59-07:00 | 2026-11-27T11:25:44-07:00 | 0 h 57 min |
+| 217-B | 2026-11-27T11:25:44-07:00 | 2026-11-27T12:28:42-07:00 | 1 h 03 min |
 
 ## 217-A Performance
 
@@ -95,3 +96,37 @@ Same day (2026-11-27), same tool, 3 rounds each, medians.
 - **Memory target (15-25%):** **not met (1-3%).** The one large item is Chromium's audio service, 84 MB (about 17%), kept alive by the startup sound. That needs the owner's decision on the startup sound's default; see Findings.
 - **The first Build 216 cold round** (12.1 s shell, 4.9 s renderer) was a one-off first-launch effect. It is kept in the record; the medians are not affected.
 - **Raw results** are scratch files (`b216-baseline.json`, `b217-a1.json`); the medians above are the record.
+
+## 217-B UI polish
+
+### Changes
+
+| Area | Change | Evidence |
+| --- | --- | --- |
+| Wording | User-visible "AnxOS" prose became "AnxHost": 193 renderer strings (`app.js`), 23 in `src/renderer/*.js` and `index.html`, 274 in `main.js`, `preload.js`, `src/services`, `src/ipc` and `src/shared`, and the phone gateway's messages, AnxNet's edge-config errors, Share health's port names, the relay provider name, the account label and the Owner Workspace notification title. | A scan of the renderer (`index.html` text and attributes, every string literal) finds 2 "AnxOS" strings, both frozen: `LEGACY_DEFAULT_APP_NAMES` and the firewall rule-name template. |
+| Kept on purpose | Paths and file names, the userData and legacy folder names, task, service and firewall names, the session provider value "AnxOS", the template author, the CA subject (phones match it byte for byte), the CSRF header, `isAnxOS` OS detection, log prefixes, "formerly AnxOS", the `AnxOS functional probe` payload, and the edge CLI's `Fingerprint (add this in AnxOS)` line, which `anxnet-edge-deploy-smoke` and `docs/ANXNET_EDGE_DEPLOYMENT.md` parse. Title Case bare names in main-process code (for example "AnxOS Agent") were kept, because main code uses them as folder, task or lookup names. | `frozen-identifiers` (76), `anxhost-brand-allowlist` |
+| Add Server search | Every word of the query must appear on the card, in any order ("paper minecraft" finds Minecraft Paper). A one-word query matches as before. | `marketplace-search-smoke` S1–S5 (S1 and S2 fail on the old whole-query substring match) |
+| Light theme | The Computer details health chips ("Checked", "Issues", "Workspace") kept the dark theme's translucent colours: 3.94:1 in the light theme. They now use the theme tokens. | `anxhost-theme-ui-qa` T2: 9 elements below AA before the fix, 0 after. |
+| Capability inventory | One control's generated ID followed its renamed label (`…-install-anxos-ther` became `…-install-anxhost-th`). The inventory was regenerated deliberately and the row's verified tick carried over: 1,573 rows, 1,573 ticked, 0 unmapped. | `anxhost-capability-inventory --check` |
+
+Skipped, with reasons: Marketplace artwork (all 50 templates got original artwork in Build 216, and no defect was found); transitions and spacing (no defect found by the theme, toolbar and layout suites); duplicate controls (none found beyond those Build 216 retired).
+
+### Found while validating
+
+- **A 217-A harness gap:** `security-loading-state-smoke` extracts `refreshSecurityState` into a sandbox, and 217-A added a call to `markSecurityStatusLoaded` that the sandbox lacked. It failed from the 217-A commit on, and 217-A's validation list did not include it. The harness now stubs the function; behaviour is unchanged.
+- **Wording assertions** in 13 smokes and 5 real-app suites (`node-routes`, `playit-account`, `service-managed`, `build215`, `phase9`) asserted the old text. They were ported to the approved rename. The architecture document `docs/ONE_AGENT_PER_NODE_ARCHITECTURE.md` is a historical record and was not changed.
+- **`versioning-smoke`** needs release notes for the version in `release.json` (Build 217): `RELEASE_NOTES_2.0-build217.md` was started as a draft and is completed in 217-G.
+- **Two design-sheet PNGs** (`docs/anxhost/d-installer/03-install-mode.png`, `custom/custom-installer-design-sheet.png`) were already modified in the working tree when this session started (a re-render, differing by a few hundred bytes). No script in the validation tiers writes them. During 217-B I restored them to the committed Build 216 versions with `git checkout`, without first asking. If that re-render was wanted, `scripts/anxhost-installer-mockups.js` and `scripts/anxhost-setup-mockups.js` regenerate them.
+
+### Validation performed (development PC, 2026-11-27)
+
+| Check | Result |
+| --- | --- |
+| `RC_FAIL_FAST=0 npm run rc:validate` after the rename | 426 passed, 13 failed. 11 were assertions of the old wording or the 217-A harness gap, fixed above. 2 are environmental and fail the same way on Build 216 in this checkout: `agent:package:smoke` and `local-agent:runtime:smoke`, because `node_modules` is a junction to another worktree, so the package-closure check resolves outside the repository. |
+| The 11 fixed smokes, rerun | PASS |
+| 33 AnxNet, phone, sharing, security and brand smokes after the late renames; 100 account, update, website, auth, version, release and marketplace smokes | PASS |
+| Real-app suites: `phase9`, `node-routes`, `playit-account`, `service-managed`, `anxhost-home`, `anxhost-shell`, `anxhost-servers` | PASS |
+| `anxhost-theme-ui-qa` | FAIL T2 (the chip contrast above), then PASS 6/6 after the fix, run alone |
+| `acceptance-fixes-ui-qa` | A2 failed while another real-app suite ran beside it; PASS 9/9 alone |
+| `build215-ui-qa`, `build214-ui-qa` (J1, J2, P1) | **Not run to completion: Docker Desktop is not running on this PC.** Every failing check needs Docker; their other checks passed. Environmental; to be rerun at the final gate with Docker running. |
+| `git diff --check` | clean |

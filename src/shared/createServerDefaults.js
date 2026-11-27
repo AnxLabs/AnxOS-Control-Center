@@ -38,8 +38,8 @@
           port: candidate,
           changed: true,
           reason: holder
-            ? `Port ${preferred} is already in use on this computer by ${holder}, so AnxOS picked ${candidate}.`
-            : `Port ${preferred} is already used by another server on this computer, so AnxOS picked ${candidate}.`,
+            ? `Port ${preferred} is already in use on this computer by ${holder}, so AnxHost picked ${candidate}.`
+            : `Port ${preferred} is already used by another server on this computer, so AnxHost picked ${candidate}.`,
         };
       }
     }
@@ -84,7 +84,7 @@
     return {
       memory: formatMemoryMiB(fitted),
       changed: true,
-      warning: `This server usually wants ${formatMemoryMiB(recommendedMiB)}, but this computer has about ${formatMemoryMiB(totalMiB)} in total, so AnxOS set ${formatMemoryMiB(fitted)}.`,
+      warning: `This server usually wants ${formatMemoryMiB(recommendedMiB)}, but this computer has about ${formatMemoryMiB(totalMiB)} in total, so AnxHost set ${formatMemoryMiB(fitted)}.`,
     };
   }
 
@@ -179,7 +179,7 @@
         add("good", `Memory: ${formatMemoryMiB(wantMiB)} of ${Number.isFinite(freeBytes) ? `${formatGiB(freeBytes)} free` : `${formatGiB(totalBytes)} in total`}.`);
       }
     } else if (wantMiB) {
-      add("unknown", `${computerName} has not reported its memory yet, so AnxOS cannot check the ${formatMemoryMiB(wantMiB)} this server is set to use.`);
+      add("unknown", `${computerName} has not reported its memory yet, so AnxHost cannot check the ${formatMemoryMiB(wantMiB)} this server is set to use.`);
     }
 
     const diskFree = Number(disk?.free);
@@ -196,7 +196,7 @@
       good: `${computerName} looks like a good fit.`,
       tight: `${computerName} can run it, with limits.`,
       no: `${computerName} is not a good fit.`,
-      unknown: `${computerName} has not reported everything AnxOS checks.`,
+      unknown: `${computerName} has not reported everything AnxHost checks.`,
     }[verdict];
     return { verdict, headline, reasons };
   }

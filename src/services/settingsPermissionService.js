@@ -98,7 +98,7 @@ function requireSettingsCapability(capability, target = "settings") {
 }
 
 function assertCanReadSettingsSecret(capability, target) {
-  requireLocalOwnerAuthenticated(target || capability, "Unlock AnxOS to use saved credentials.");
+  requireLocalOwnerAuthenticated(target || capability, "Unlock AnxHost to use saved credentials.");
   return requireSettingsCapability(capability, target);
 }
 

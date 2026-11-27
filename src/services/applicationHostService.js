@@ -143,7 +143,7 @@ function getApplicationHostNode() {
     id: APPLICATION_HOST_NODE_ID,
     kind: "application-host",
     displayName: host.displayName,
-    description: "Computer running AnxOS Control Center.",
+    description: "Computer running AnxHost Control Center.",
     modeLabel: "Local Application",
     nodeTypeLabel: "Application Host",
     builtIn: true,

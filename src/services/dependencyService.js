@@ -181,7 +181,7 @@ function resolveDependencyAdvisory(artifact, name) {
       artifactPath: artifact.path,
       reason: `The in-tree triage record (${artifact.path}) lists ${advisories} for this package with disposition: `
         + `${entry.disposition || "not stated"}. This is a human-reviewed scan record, not a live feed, and it carries `
-        + "no affected version range, so AnxOS cannot confirm whether the installed version is affected.",
+        + "no affected version range, so AnxHost cannot confirm whether the installed version is affected.",
     };
   }
   return {
@@ -213,7 +213,7 @@ function describeAdvisoryStatus(artifact) {
       parseError: artifact?.parseError || null,
       notes: artifact?.notes || null,
     },
-    reason: "AnxOS has no live dependency advisory feed. The only advisory data is a human-triaged scan record "
+    reason: "AnxHost has no live dependency advisory feed. The only advisory data is a human-triaged scan record "
       + `(${artifact?.path || ADVISORY_TRIAGE_RELATIVE_PATH}), which lists the advisories one scan matched and carries `
       + "no affected version ranges. A package with no entry is NOT reported clean; its status is UNKNOWN, because "
       + "absence of an entry is not a clean bill of health.",

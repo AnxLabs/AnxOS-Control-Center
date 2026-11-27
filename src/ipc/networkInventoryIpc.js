@@ -9,7 +9,7 @@ const { wrapExpectedAgentRead } = require("./expectedAgentError");
 // as the other node-credential reads (nodes:health pattern).
 function registerNetworkInventoryIpc() {
   ipcMain.handle("networkInventory:get", async (_, payload = {}) => wrapExpectedAgentRead("networkInventory:get", () => {
-    requireLocalOwnerAuthenticated("networkInventory:get", "Unlock AnxOS to inspect node network inventory.");
+    requireLocalOwnerAuthenticated("networkInventory:get", "Unlock AnxHost to inspect node network inventory.");
     requirePermission("nodes:read", payload.nodeId);
     const context = requireNodeContext(payload, "network inventory");
     return getNetworkInventory({ ...payload, nodeId: context.nodeId });

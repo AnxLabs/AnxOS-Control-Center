@@ -21,7 +21,7 @@ async function invokeNotificationsOperation(operation) {
 
 function registerNotificationsIpc() {
   ipcMain.handle("notifications:list", async (_, payload = {}) => invokeNotificationsOperation(() => {
-    requireLocalOwnerAuthenticated("notifications:list", "Unlock AnxOS to view notifications.");
+    requireLocalOwnerAuthenticated("notifications:list", "Unlock AnxHost to view notifications.");
     requirePermission("nodes:read", "notifications");
     audit({ action: "notifications.list", target: payload.nodeId || "notifications" });
     return listOperationalNotifications({ since: payload.since, limit: payload.limit });

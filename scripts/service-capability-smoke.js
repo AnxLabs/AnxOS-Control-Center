@@ -362,10 +362,10 @@ function testMinecraft() {
   const derived = derive({ instanceType: "minecraft", family: "minecraft" });
   assertDerivedShape(derived, "minecraft");
   assert.strictEqual(derived.family, "minecraft");
-  assert.strictEqual(derived.capabilities.players, true, "Minecraft player adapters ship with AnxOS.");
+  assert.strictEqual(derived.capabilities.players, true, "Minecraft player adapters ship with AnxHost.");
   assert.deepStrictEqual(
     derived.extensionPoints,
-    [{ id: "players", state: "available", reason: "Minecraft player file adapters ship with AnxOS." }],
+    [{ id: "players", state: "available", reason: "Minecraft player file adapters ship with AnxHost." }],
     "Minecraft must expose players as an available extension point.",
   );
   assert.strictEqual(hasOwn(derived.unsupported, "players"), false, "An available extension must not be unsupported.");

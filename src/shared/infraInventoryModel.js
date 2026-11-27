@@ -199,7 +199,7 @@ function buildHostResource(ctx, health = {}, summary = null) {
       reason: identity.reason,
       components: identity.components,
     },
-    ownership: { owner: "anxos-agent", detail: "Host reported by its AnxOS Agent" },
+    ownership: { owner: "anxos-agent", detail: "Host reported by its AnxHost Agent" },
     source: "agent-observed",
     health: { state: "healthy", detail: null },
     capabilities: {

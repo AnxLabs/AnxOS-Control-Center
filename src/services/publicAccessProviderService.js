@@ -94,7 +94,7 @@ function assessFirewallLockoutRisk(payload = {}, context = {}) {
   const sshPort = normalizeFirewallPort(context.sshPort) ?? DEFAULT_SSH_PORT;
   const reasons = [];
   if (port !== null && port === agentPort) {
-    reasons.push({ code: "AGENT_PORT", port, message: `Port ${port} is the AnxOS Agent management port.` });
+    reasons.push({ code: "AGENT_PORT", port, message: `Port ${port} is the AnxHost Agent management port.` });
   }
   if (port !== null && port === sshPort) {
     reasons.push({ code: "SSH_PORT", port, message: `Port ${port} is the SSH management port.` });
@@ -284,7 +284,7 @@ async function listWindowsFirewallRules(payload = {}, options = {}) {
         nodeId,
         managedRulePrefix: MANAGED_FIREWALL_RULE_PREFIX,
         rules: [],
-        message: "This Agent does not support AnxOS firewall rule inventory yet. Update the Agent to manage firewall rules.",
+        message: "This Agent does not support AnxHost firewall rule inventory yet. Update the Agent to manage firewall rules.",
       };
     }
     throw error;
@@ -295,7 +295,7 @@ async function deleteWindowsFirewallRule(payload = {}, options = {}) {
   const nodeId = payload.nodeId || getSelectedNodeId();
   const name = String(payload.name || payload.id || "").trim();
   if (!name.startsWith(MANAGED_FIREWALL_RULE_PREFIX)) {
-    const error = new Error("AnxOS can only delete firewall rules it created.");
+    const error = new Error("AnxHost can only delete firewall rules it created.");
     error.code = "FIREWALL_RULE_UNMANAGED";
     throw error;
   }

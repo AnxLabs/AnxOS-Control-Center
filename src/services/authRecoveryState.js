@@ -11,9 +11,9 @@ const AUTH_STATES = Object.freeze({
   RESTORE_FAILED: "restore_failed",
 });
 
-const RECOVERY_MESSAGE = "Your saved session could not be restored. Please unlock AnxOS again.";
-const UNLOCK_MESSAGE = "Unlock AnxOS to continue.";
-const LOCAL_CREDENTIALS_MESSAGE = "Saved node credentials could not be restored. Unlock AnxOS to continue.";
+const RECOVERY_MESSAGE = "Your saved session could not be restored. Please unlock AnxHost again.";
+const UNLOCK_MESSAGE = "Unlock AnxHost to continue.";
+const LOCAL_CREDENTIALS_MESSAGE = "Saved node credentials could not be restored. Unlock AnxHost to continue.";
 let state = AUTH_STATES.LOCKED;
 let failureCode = null;
 let recoveryActive = false;

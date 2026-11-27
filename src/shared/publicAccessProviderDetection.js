@@ -115,7 +115,7 @@ const PUBLIC_ACCESS_PROVIDERS = [
     id: "anxos-relay",
     dependencyId: null,
     className: "AnxOSRelayProvider",
-    name: "AnxOS Relay",
+    name: "AnxHost Relay",
     status: "disabled",
     description: "Provider not available in this build.",
     exposureScope: "unavailable",
@@ -365,7 +365,7 @@ function inferTailscaleState({ executable, daemonInstalled, daemonRunning, statu
       health: "degraded",
       lifecycleState: "degraded",
       displayState: "Degraded",
-      recoveryAction: "Tailscale is installed, but AnxOS could not verify a healthy connected state.",
+      recoveryAction: "Tailscale is installed, but AnxHost could not verify a healthy connected state.",
     };
   }
   return {
@@ -623,11 +623,11 @@ function buildPlayitProviderState(snapshot = {}, context = {}) {
       createProviderResource: false,
       startService: false,
       stopService: false,
-      unsupportedCreateReason: "The detected Playit integration does not expose a safe local API for creating provider tunnels from AnxOS yet. AnxOS can save the access service record and reconcile it after Playit reports the tunnel.",
+      unsupportedCreateReason: "The detected Playit integration does not expose a safe local API for creating provider tunnels from AnxHost yet. AnxHost can save the access service record and reconcile it after Playit reports the tunnel.",
     },
     recoveryAction: snapshot.installed
-      ? "Manage the tunnel in Playit itself (playit.gg), then refresh AnxOS to see the new state."
-      : "Install and configure Playit.gg on the selected node. AnxOS can check whether Playit is installed.",
+      ? "Manage the tunnel in Playit itself (playit.gg), then refresh AnxHost to see the new state."
+      : "Install and configure Playit.gg on the selected node. AnxHost can check whether Playit is installed.",
   });
 }
 

@@ -25,10 +25,10 @@
   // Warnings the Agent can attach to a preview, in plain words. Unknown codes
   // are passed through as-is so nothing is hidden.
   const WARNINGS = Object.freeze({
-    RESTORE_TARGET_RUNNING: "The server is running. AnxOS stops it before restoring.",
+    RESTORE_TARGET_RUNNING: "The server is running. AnxHost stops it before restoring.",
     RESTORE_TARGET_INSTANCE_MISSING: "This server is no longer registered on that computer; the backup is restored into its folder.",
-    RESTORE_TARGET_STATUS_UNAVAILABLE: "AnxOS could not check whether the server is running.",
-    RESTORE_TARGET_WORLD_SCOPE_MISSING: "AnxOS could not find this server's world folder, so the safety copy may not cover the world.",
+    RESTORE_TARGET_STATUS_UNAVAILABLE: "AnxHost could not check whether the server is running.",
+    RESTORE_TARGET_WORLD_SCOPE_MISSING: "AnxHost could not find this server's world folder, so the safety copy may not cover the world.",
   });
 
   // Returns { lines, warnings } for the confirmation, or null when the
@@ -48,8 +48,8 @@
     if (backup.createdAt) lines.push(`The backup was taken ${formatDate(backup.createdAt)}.`);
     const safetyPaths = formatPaths(scope.safetySourcePaths);
     lines.push(scope.safetyType === "world"
-      ? `AnxOS first keeps a safety copy of the current world${safetyPaths ? ` (${safetyPaths})` : ""}.`
-      : "AnxOS first keeps a safety copy of the whole server, so you can undo this restore.");
+      ? `AnxHost first keeps a safety copy of the current world${safetyPaths ? ` (${safetyPaths})` : ""}.`
+      : "AnxHost first keeps a safety copy of the whole server, so you can undo this restore.");
     if (preview.conflict && preview.conflict.verdict === "new-restore") {
       lines.push("The backup goes into a different server; the original server is not changed.");
     }

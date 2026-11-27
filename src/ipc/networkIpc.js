@@ -200,41 +200,41 @@ async function listEndpointsForIpc(payload = {}) {
 
 function registerNetworkIpc() {
   ipcMain.handle("endpoints:list", async (_, payload = {}) => invokeNetworkOperation(() => {
-    requireLocalOwnerAuthenticated("endpoints:list", "Unlock AnxOS to view endpoints.");
+    requireLocalOwnerAuthenticated("endpoints:list", "Unlock AnxHost to view endpoints.");
     requirePermission("endpoints:read", payload.nodeId);
     audit({ action: "endpoints.list", target: payload.nodeId || "endpoints" });
     return listEndpointsForIpc(payload);
   }));
   ipcMain.handle("endpoints:create", async (_, payload = {}) => invokeNetworkOperation(async () => {
-    requireLocalOwnerAuthenticated("endpoints:create", "Unlock AnxOS to create endpoints.");
+    requireLocalOwnerAuthenticated("endpoints:create", "Unlock AnxHost to create endpoints.");
     requirePermission("endpoints:write", payload.nodeId);
     const created = await createEndpoint(payload);
     audit({ action: "endpoint.create", target: created?.id || payload.id || payload.endpointId || null });
     return created;
   }));
   ipcMain.handle("endpoints:update", async (_, payload = {}) => invokeNetworkOperation(() => {
-    requireLocalOwnerAuthenticated("endpoints:update", "Unlock AnxOS to update endpoints.");
+    requireLocalOwnerAuthenticated("endpoints:update", "Unlock AnxHost to update endpoints.");
     const id = payload?.id ?? payload?.endpointId;
     requirePermission("endpoints:write", id);
     audit({ action: "endpoint.update", target: id || null });
     return updateEndpoint(id, payload);
   }));
   ipcMain.handle("endpoints:delete", async (_, payload = {}) => invokeNetworkOperation(() => {
-    requireLocalOwnerAuthenticated("endpoints:delete", "Unlock AnxOS to delete endpoints.");
+    requireLocalOwnerAuthenticated("endpoints:delete", "Unlock AnxHost to delete endpoints.");
     const id = payload?.id ?? payload?.endpointId;
     requirePermission("endpoints:write", id);
     audit({ action: "endpoint.delete", target: id || null });
     return deleteEndpoint(id);
   }));
   ipcMain.handle("endpoints:setEnabled", async (_, payload = {}) => invokeNetworkOperation(() => {
-    requireLocalOwnerAuthenticated("endpoints:setEnabled", "Unlock AnxOS to change endpoint state.");
+    requireLocalOwnerAuthenticated("endpoints:setEnabled", "Unlock AnxHost to change endpoint state.");
     const id = payload?.id ?? payload?.endpointId;
     requirePermission("endpoints:write", id);
     audit({ action: "endpoint.toggle", target: id || null });
     return setEndpointEnabled(id, payload?.enabled);
   }));
   ipcMain.handle("endpoints:associate", async (_, payload = {}) => invokeNetworkOperation(() => {
-    requireLocalOwnerAuthenticated("endpoints:associate", "Unlock AnxOS to associate endpoints.");
+    requireLocalOwnerAuthenticated("endpoints:associate", "Unlock AnxHost to associate endpoints.");
     requirePermission("endpoints:write", payload.endpointId);
     audit({ action: "endpoint.associate", target: payload.endpointId || null });
     return associateEndpoint(payload);
@@ -244,7 +244,7 @@ function registerNetworkIpc() {
   // is an expected outcome (ENDPOINT_AGENT_UNAVAILABLE) and degrades to the
   // { ok: false, error } envelope instead of an unexpected failure.
   ipcMain.handle("endpoints:discover", async (_, payload = {}) => invokeExpectedNetworkOperation("endpoints:discover", () => {
-    requireLocalOwnerAuthenticated("endpoints:discover", "Unlock AnxOS to discover endpoints.");
+    requireLocalOwnerAuthenticated("endpoints:discover", "Unlock AnxHost to discover endpoints.");
     requirePermission("endpoints:write", payload.nodeId);
     requireNodeContext(payload, "endpoint discovery");
     audit({ action: "endpoint.discover", target: payload.nodeId || null });
@@ -253,7 +253,7 @@ function registerNetworkIpc() {
   // Diagnostics run against a selected node: the endpoint must exist, the
   // Agent must answer, and every structured refusal is an expected outcome.
   ipcMain.handle("endpoints:test", async (_, payload = {}) => invokeExpectedNetworkOperation("endpoints:test", () => {
-    requireLocalOwnerAuthenticated("endpoints:test", "Unlock AnxOS to test endpoints.");
+    requireLocalOwnerAuthenticated("endpoints:test", "Unlock AnxHost to test endpoints.");
     requirePermission("diagnostics:run", payload.endpointId || payload.nodeId);
     requireNodeContext(payload, "endpoint diagnostics");
     audit({ action: "endpoint.test", target: payload.endpointId || null });
@@ -268,7 +268,7 @@ function registerNetworkIpc() {
   // documented refusal codes (NODE_REQUIRED, AGENT_UNAVAILABLE, ...) instead of
   // throwing. Guard and permission refusals still throw unchanged.
   ipcMain.handle("connectivity:getDiagnostics", async (_, payload = {}) => invokeExpectedNetworkOperation("connectivity:getDiagnostics", () => {
-    requireLocalOwnerAuthenticated("connectivity:getDiagnostics", "Unlock AnxOS to view connectivity diagnostics.");
+    requireLocalOwnerAuthenticated("connectivity:getDiagnostics", "Unlock AnxHost to view connectivity diagnostics.");
     requirePermission("endpoints:read", payload.nodeId);
     requireNodeContext(payload, "connectivity diagnostics");
     audit({ action: "connectivity.getDiagnostics", target: payload.endpointId || payload.nodeId || null });
@@ -283,7 +283,7 @@ function registerNetworkIpc() {
     return connectivityDiagnosticsService.getCachedDiagnostics(target);
   }));
   ipcMain.handle("connectivity:runDiagnostics", async (_, payload = {}) => invokeExpectedNetworkOperation("connectivity:runDiagnostics", () => {
-    requireLocalOwnerAuthenticated("connectivity:runDiagnostics", "Unlock AnxOS to run connectivity diagnostics.");
+    requireLocalOwnerAuthenticated("connectivity:runDiagnostics", "Unlock AnxHost to run connectivity diagnostics.");
     requirePermission("diagnostics:run", payload.nodeId);
     requireNodeContext(payload, "connectivity diagnostics");
     audit({ action: "connectivity.runDiagnostics", target: payload.endpointId || payload.nodeId || null });
@@ -295,7 +295,7 @@ function registerNetworkIpc() {
     });
   }));
   ipcMain.handle("providers:getStatus", async (_, payload = {}) => invokeNetworkOperation(() => {
-    requireLocalOwnerAuthenticated("providers:getStatus", "Unlock AnxOS to view provider status.");
+    requireLocalOwnerAuthenticated("providers:getStatus", "Unlock AnxHost to view provider status.");
     requirePermission("providers:read", payload.nodeId);
     requireNodeContext(payload, "provider status");
     audit({ action: "providers.getStatus", target: payload.nodeId });
@@ -304,7 +304,7 @@ function registerNetworkIpc() {
     return providerIntegrationService.getProviderSnapshot({ nodeId: payload.nodeId });
   }));
   ipcMain.handle("providers:sync", async (_, payload = {}) => invokeExpectedNetworkOperation("providers:sync", () => {
-    requireLocalOwnerAuthenticated("providers:sync", "Unlock AnxOS to sync providers.");
+    requireLocalOwnerAuthenticated("providers:sync", "Unlock AnxHost to sync providers.");
     requirePermission("providers:sync", payload.nodeId);
     requireNodeContext(payload, "provider sync");
     audit({ action: "provider.sync", target: payload.nodeId });

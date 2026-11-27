@@ -238,7 +238,7 @@ async function readMinecraft(config, { queryMinecraft }) {
     players: names.filter((entry) => entry.name).slice(0, MAX_PLAYERS),
     namesComplete: online !== null && names.length === online,
     pingSupported: false,
-    pingNote: "Minecraft does not report each player's ping to AnxOS. A server plugin can provide it; none is set up.",
+    pingNote: "Minecraft does not report each player's ping to AnxHost. A server plugin can provide it; none is set up.",
   };
 }
 
@@ -333,8 +333,8 @@ async function readPalworld(config, { getJson, readFile, palworldSettingsPaths }
 }
 
 const UNSUPPORTED = Object.freeze({
-  hytale: "The Hytale server does not offer a player list AnxOS can read yet.",
-  terraria: "Terraria (TShock) needs a REST token to list players; AnxOS does not set one up yet.",
+  hytale: "The Hytale server does not offer a player list AnxHost can read yet.",
+  terraria: "Terraria (TShock) needs a REST token to list players; AnxHost does not set one up yet.",
 });
 
 // ---------------------------------------------------------------------------

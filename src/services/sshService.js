@@ -84,7 +84,7 @@ function describeAgentAuthFailure(agent, profile) {
     });
   }
   if (agent.diagnostics.listed && agent.diagnostics.offered === 0) {
-    return new SshServiceError(`This key isn't loaded in the SSH agent. Run ssh-add "${keyPath}" once (it asks for the passphrase there, not in AnxOS), then retry.`, {
+    return new SshServiceError(`This key isn't loaded in the SSH agent. Run ssh-add "${keyPath}" once (it asks for the passphrase there, not in AnxHost), then retry.`, {
       code: "SSH_AGENT_KEY_NOT_LOADED", stage: "authenticating",
     });
   }
@@ -481,7 +481,7 @@ function mapConnectionError(error, stage = "connecting", profile = null) {
   }
 
   if (code === "ECONNRESET" || code === "EPIPE" || /socket hang up|connection reset/i.test(message)) {
-    return new SshServiceError("SSH connection was interrupted by the remote host. AnxOS will retry when it is safe to do so.", {
+    return new SshServiceError("SSH connection was interrupted by the remote host. AnxHost will retry when it is safe to do so.", {
       code: "SSH_CONNECTION_CLOSED", stage, platformCode: code,
     });
   }
@@ -1041,7 +1041,7 @@ class SshService extends EventEmitter {
       publicKey = null;
     }
     if (!publicKey || publicKey instanceof Error) {
-      throw new SshServiceError(`AnxOS needs this key's public half (${publicKeyPath}) to pick it from the SSH agent.`, {
+      throw new SshServiceError(`AnxHost needs this key's public half (${publicKeyPath}) to pick it from the SSH agent.`, {
         code: "SSH_AGENT_PUBLIC_KEY_MISSING", retryable: false,
       });
     }
@@ -1645,7 +1645,7 @@ class SshService extends EventEmitter {
     }
     const password = typeof options.password === "string" ? options.password : "";
     if (!password) {
-      throw new SshServiceError("Enter the SSH password once so AnxOS can add the new key to this account.", { code: "SSH_PASSWORD_REQUIRED" });
+      throw new SshServiceError("Enter the SSH password once so AnxHost can add the new key to this account.", { code: "SSH_PASSWORD_REQUIRED" });
     }
     const passphrase = typeof options.passphrase === "string" ? options.passphrase : "";
     if (passphrase && passphrase.length < 8) {

@@ -223,9 +223,9 @@
       const type = el("td", "", TYPE_LABELS[server.kind] || "Server");
       if (server.kind === "docker") {
         type.title = server.managed
-          ? "Installed by AnxOS from the catalog."
-          : server.composeProject ? `Part of the Compose project ${server.composeProject}${server.dependsOn?.length ? `; starts after ${server.dependsOn.join(", ")}` : ""}.` : "An existing container AnxOS found on this computer.";
-        type.append(el("span", "platform-note", server.managed ? " · AnxOS" : server.composeProject ? ` · ${server.composeProject}` : " · existing"));
+          ? "Installed by AnxHost from the catalog."
+          : server.composeProject ? `Part of the Compose project ${server.composeProject}${server.dependsOn?.length ? `; starts after ${server.dependsOn.join(", ")}` : ""}.` : "An existing container AnxHost found on this computer.";
+        type.append(el("span", "platform-note", server.managed ? " · AnxHost" : server.composeProject ? ` · ${server.composeProject}` : " · existing"));
       }
       const computer = el("td", "", server.nodeName);
       if (server.kind === "docker" && server.alsoOn?.length) {
@@ -344,7 +344,7 @@
     const confirmed = await safe(() => root.createSecurityConfirmation({
       eyebrow: "Docker service update",
       title: `Update ${service.name} on ${service.nodeName}?`,
-      message: "AnxOS downloads the newest image for the same tag. If it is newer, the service restarts on it with the same ports, settings and data.",
+      message: "AnxHost downloads the newest image for the same tag. If it is newer, the service restarts on it with the same ports, settings and data.",
       details: [
         ["Service", `${service.name} (${service.template || service.image || "Docker"})`],
         ["Computer", service.nodeName],

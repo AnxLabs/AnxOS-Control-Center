@@ -59,7 +59,7 @@
       fix: "Free up space on that computer (old backups are a common cause), then start the server again.",
     },
     CRASH_LOOP: {
-      title: "It kept crashing, so AnxOS stopped restarting it",
+      title: "It kept crashing, so AnxHost stopped restarting it",
       detail: "The server crashed several times in a row. Automatic restarts were paused so it does not loop forever.",
       fix: "Open the console to see the error, fix it, then start the server again.",
     },
@@ -70,7 +70,7 @@
     },
     PROCESS_KILLED: {
       title: "It was stopped by the computer",
-      detail: "Something outside AnxOS ended the server, for example the system running low on memory or a shutdown.",
+      detail: "Something outside AnxHost ended the server, for example the system running low on memory or a shutdown.",
       fix: "Start it again. If it keeps happening, give the computer more free memory or lower the server's memory.",
     },
     PROCESS_EXITED: {

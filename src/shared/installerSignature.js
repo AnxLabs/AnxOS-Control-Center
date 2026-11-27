@@ -89,7 +89,7 @@ function evaluateInstallerSignature(raw, publisher = TRUSTED_WINDOWS_PUBLISHER) 
   const publisherMatches = subject.CN === publisher.commonName && subject.O === publisher.organization;
   const issuerMatches = typeof issuer.CN === "string" && issuer.CN.startsWith(publisher.issuerCommonNamePrefix);
   if (!publisherMatches || !issuerMatches) {
-    throw signatureError("UPDATE_INSTALLER_WRONG_PUBLISHER", `The downloaded installer is signed by "${summary.publisher || "an unknown publisher"}", not by the AnxOS Control Center publisher, so it was not opened.`, summary);
+    throw signatureError("UPDATE_INSTALLER_WRONG_PUBLISHER", `The downloaded installer is signed by "${summary.publisher || "an unknown publisher"}", not by the AnxHost Control Center publisher, so it was not opened.`, summary);
   }
   return { ...summary, verified: true };
 }

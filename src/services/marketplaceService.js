@@ -550,7 +550,7 @@ function mapMarketplaceError(error, fallback = "Template install failed.") {
     DOWNLOAD_URL_INCOMPLETE: "The template download URL is incomplete.",
     DOWNLOAD_RESOLVE_FAILED: "Unable to resolve the latest server download.",
     INSTALLER_NOT_SUPPORTED: "This server template cannot be fully automated yet.",
-    MANUAL_SETUP_REQUIRED: "This server requires manual setup before AnxOS can start it.",
+    MANUAL_SETUP_REQUIRED: "This server requires manual setup before AnxHost can start it.",
     FABRIC_RESOLVE_FAILED: "Unable to resolve Fabric download.",
     FORGE_RESOLVE_FAILED: "Unable to download Forge installer.",
     NEOFORGE_RESOLVE_FAILED: "Unable to download NeoForge installer.",
@@ -1302,7 +1302,7 @@ function createDependencyInstallRecord(payload = {}, plan = null, options = {}) 
     progressMode: "indeterminate",
     body: `Dependency installation started for ${payload.nodeId || "selected node"}.`,
     metadataText: dependencyIds.join(", "),
-    actionText: "Progress stays inside AnxOS. Raw package-manager output is available in sanitized logs.",
+    actionText: "Progress stays inside AnxHost. Raw package-manager output is available in sanitized logs.",
     bytesReceived: 0,
     bytesTotal: null,
     speedBytesPerSecond: 0,
@@ -1403,7 +1403,7 @@ function finalizeDependencyInstallRecord(downloadId, installResult = null, error
     body: failed
       ? error?.message || "Dependency installation failed."
       : degraded
-        ? "Installation completed, but AnxOS could not verify the dependency."
+        ? "Installation completed, but AnxHost could not verify the dependency."
       : "Dependency installation completed and verification succeeded.",
     error: failed ? error?.message || "Dependency installation failed." : null,
     errorCode: failed ? error?.code || "DEPENDENCY_INSTALL_FAILED" : degraded ? "VERIFICATION_FAILED" : null,
@@ -2432,8 +2432,8 @@ const modpackVersionLabels = new Map();
 const modpackLabel = (provider, id) => modpackVersionLabels.get(`${provider}:${id}`) || id;
 
 const SERVER_VERSION_CHECK_NOTES = Object.freeze({
-  "modrinth-modpack": (target, latest) => `Modpack version ${modpackLabel("modrinth", latest)} is available for Minecraft ${target.minecraftVersion || "this version"} (installed ${target.installedLabel}). An update replaces the pack's mods and settings files, so back up first. AnxOS does not apply modpack updates yet.`,
-  "curseforge-modpack": (target, latest) => `Modpack version ${modpackLabel("curseforge", latest)} is available for Minecraft ${target.minecraftVersion || "this version"} (installed ${target.installedLabel}). An update replaces the pack's mods and settings files, so back up first. AnxOS does not apply modpack updates yet.`,
+  "modrinth-modpack": (target, latest) => `Modpack version ${modpackLabel("modrinth", latest)} is available for Minecraft ${target.minecraftVersion || "this version"} (installed ${target.installedLabel}). An update replaces the pack's mods and settings files, so back up first. AnxHost does not apply modpack updates yet.`,
+  "curseforge-modpack": (target, latest) => `Modpack version ${modpackLabel("curseforge", latest)} is available for Minecraft ${target.minecraftVersion || "this version"} (installed ${target.installedLabel}). An update replaces the pack's mods and settings files, so back up first. AnxHost does not apply modpack updates yet.`,
   paper: (target, latest) => `Paper build ${latest} is available for Minecraft ${target.minecraftVersion} (installed build ${target.installedVersion}).`,
   "minecraft-release": (target, latest) => `Minecraft ${latest} is available (installed ${target.installedVersion}). A new release upgrades the world, so back up first.`,
   fivem: (target, latest) => `FXServer artifact ${latest} is available (installed ${target.installedVersion}).`,
@@ -5214,7 +5214,7 @@ async function executeInstallTemplate(payload = {}, context = {}) {
       if (!Object.keys(nativeSecretEnvironment).every((name) => reported.has(name))) {
         // An Agent older than Build 214 ignores the secret and would start
         // the server with the setting's name as its password.
-        throw createMarketplaceError(`${template.displayName} needs this computer's AnxOS Agent to be Build 214 or newer, to keep its ${(template.userSecrets?.[0]?.label) || "administrator password"} safe. Update the Agent, then install again.`, "AGENT_SECRET_STORE_REQUIRED", { retryable: false });
+        throw createMarketplaceError(`${template.displayName} needs this computer's AnxHost Agent to be Build 214 or newer, to keep its ${(template.userSecrets?.[0]?.label) || "administrator password"} safe. Update the Agent, then install again.`, "AGENT_SECRET_STORE_REQUIRED", { retryable: false });
       }
     }
     const createRecord = createResult?.instance || createResult?.data?.instance || createResult?.data || createResult || {};

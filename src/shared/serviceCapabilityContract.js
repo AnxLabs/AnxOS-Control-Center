@@ -95,7 +95,7 @@ const KNOWN_FAMILY_EXTENSIONS = Object.freeze({
   minecraft: Object.freeze({
     players: Object.freeze({
       state: "available",
-      reason: "Minecraft player file adapters ship with AnxOS.",
+      reason: "Minecraft player file adapters ship with AnxHost.",
     }),
   }),
   fivem: Object.freeze({

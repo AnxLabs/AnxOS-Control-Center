@@ -40,18 +40,18 @@ function nodePlatform(node) {
 // One node's update state against the build this Desktop bundles.
 function classifyNodeAgentUpdate(node, { desktopBuild, profile } = {}) {
   const base = { nodeId: node?.id || null, name: nodeName(node), installedBuild: nodeBuild(node) || null, targetBuild: desktopBuild || null, canUpdate: false };
-  if (!node || node.id === APPLICATION_HOST_NODE_ID) return { ...base, state: "local", reason: "This PC's Agent updates with AnxOS Control Center." };
+  if (!node || node.id === APPLICATION_HOST_NODE_ID) return { ...base, state: "local", reason: "This PC's Agent updates with AnxHost Control Center." };
   if (!desktopBuild) return { ...base, state: "unknown", reason: "This Desktop cannot read its own Agent build." };
   if (node.connection?.status !== "online") return { ...base, state: "offline", reason: "The computer is not connected." };
   const platform = nodePlatform(node);
   if (platform && platform !== "linux") return { ...base, state: "unsupported", reason: "Agent updates from this Desktop are available for Linux computers." };
   if (!base.installedBuild) {
-    return { ...base, state: "unknown-build", reason: "This Agent predates build reporting. Update it once by hand; after that AnxOS can update it." };
+    return { ...base, state: "unknown-build", reason: "This Agent predates build reporting. Update it once by hand; after that AnxHost can update it." };
   }
   const comparison = compareAgentArtifactVersions(base.installedBuild, desktopBuild);
-  if (comparison === null) return { ...base, state: "unknown-build", reason: `AnxOS cannot compare ${base.installedBuild} with ${desktopBuild}.` };
+  if (comparison === null) return { ...base, state: "unknown-build", reason: `AnxHost cannot compare ${base.installedBuild} with ${desktopBuild}.` };
   if (comparison === 0) return { ...base, state: "up-to-date", reason: "Up to date." };
-  if (comparison > 0) return { ...base, state: "newer-than-desktop", reason: "This Agent is newer than AnxOS Control Center. Update the app instead." };
+  if (comparison > 0) return { ...base, state: "newer-than-desktop", reason: "This Agent is newer than AnxHost Control Center. Update the app instead." };
   if (!profile) return { ...base, state: "update-available", reason: "Assign an SSH key profile to this computer to update it from here." };
   if (profile.authType !== "privateKey") return { ...base, state: "update-available", reason: "The computer's SSH profile signs in with a password. Set up key sign-in for it on the SSH page to update it from here." };
   return { ...base, state: "update-available", canUpdate: true, reason: `Update ${base.installedBuild} → ${desktopBuild}.` };

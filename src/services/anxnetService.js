@@ -183,14 +183,14 @@ function blockedPorts() {
   try {
     for (const node of require("./nodeService").getAllNodesSync()) {
       const port = Number(new URL(node.baseUrl || node.agentUrl || "http://x").port);
-      if (Number.isInteger(port) && port > 0) ports.set(port, "the AnxOS Agent");
+      if (Number.isInteger(port) && port > 0) ports.set(port, "the AnxHost Agent");
     }
   } catch {
     // The fixed list still applies.
   }
   try {
     const phone = JSON.parse(fs.readFileSync(path.join(getDefaultConfigDirectory(), "mobile", "settings.json"), "utf8"));
-    if (Number.isInteger(Number(phone.port))) ports.set(Number(phone.port), "AnxOS Phone Access");
+    if (Number.isInteger(Number(phone.port))) ports.set(Number(phone.port), "AnxHost Phone Access");
   } catch {
     // Phone access not configured.
   }
@@ -284,7 +284,7 @@ async function ensureBackend() {
         if (error?.code === "ANXNET_DEVICE_KEY_UNREADABLE" || error?.code === "ANXNET_HOST_KEY_MISMATCH" || error?.anxnetHostAlive) throw error;
         // Never leave the user without AnxNet because the helper couldn't
         // start: run it in this process and say so.
-        events.emit("warning", { code: error.code || "ANXNET_HOST_START_FAILED", message: `AnxNet's background process couldn't start (${error.message}); running inside AnxOS instead.` });
+        events.emit("warning", { code: error.code || "ANXNET_HOST_START_FAILED", message: `AnxNet's background process couldn't start (${error.message}); running inside AnxHost instead.` });
       }
     }
     backend = await startInProcessBackend();
@@ -602,7 +602,7 @@ async function setKeepRunning(enabled) {
 function agentCall(nodeId, action, body) {
   const agentClient = require("./agentClient");
   const target = agentClient.forNode(String(nodeId || "")).target;
-  if (!target?.config) throw roster.error("ANXNET_NOT_AN_AGENT", "That computer doesn't run the AnxOS Agent.", 400);
+  if (!target?.config) throw roster.error("ANXNET_NOT_AN_AGENT", "That computer doesn't run the AnxHost Agent.", 400);
   return agentClient.anxnetRequest(action, body, target.config);
 }
 
@@ -621,7 +621,7 @@ async function addComputer(nodeId) {
   }
   let name = "";
   try { name = require("./nodeService").getNode(nodeId)?.displayName || ""; } catch {}
-  const invite = await active.call("createInvite", { ttlMs: 10 * 60 * 1000, maxUses: 1, preApproved: true, label: `AnxOS Agent: ${name || nodeId}`.slice(0, 60) });
+  const invite = await active.call("createInvite", { ttlMs: 10 * 60 * 1000, maxUses: 1, preApproved: true, label: `AnxHost Agent: ${name || nodeId}`.slice(0, 60) });
   try {
     const joined = await agentCall(nodeId, "join", { code: invite.code, deviceName: name || undefined });
     return { agent: joined, status: await status() };

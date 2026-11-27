@@ -369,7 +369,7 @@ async function getLocalSystemSnapshot() {
       if (Number.isFinite(privilegedTemperature)) {
         cpuTemperature = {
           available: true,
-          source: privilegedSnapshot?.cpu?.temperatureSource || privilegedSnapshot?.temperatureSource || "Elevated AnxOS Agent",
+          source: privilegedSnapshot?.cpu?.temperatureSource || privilegedSnapshot?.temperatureSource || "Elevated AnxHost Agent",
           timestamp: privilegedSnapshot?.cpu?.temperatureTimestamp || privilegedSnapshot?.temperatureTimestamp || new Date().toISOString(),
           cpu: {
             temperatureCelsius: privilegedTemperature,

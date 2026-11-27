@@ -26,12 +26,12 @@ assert.strictEqual(locked.authenticated, false);
 assert.strictEqual(locked.reason, "node_credentials_unavailable");
 assert.match(locked.message, /Saved node credentials could not be restored/);
 assert.throws(
-  () => recovery.requireLocalCredentialsUnlocked("nodes:save", "Unlock AnxOS to manage nodes."),
+  () => recovery.requireLocalCredentialsUnlocked("nodes:save", "Unlock AnxHost to manage nodes."),
   (error) => error?.code === "LOCAL_AUTHENTICATION_REQUIRED" && !error.message.includes("NODE_CREDENTIAL_DECRYPT_FAILED"),
 );
 
 const lockedCredentialError = createIpcError(
-  Object.assign(new Error("Unlock AnxOS to access saved node credentials."), {
+  Object.assign(new Error("Unlock AnxHost to access saved node credentials."), {
     code: "LOCAL_AUTHENTICATION_REQUIRED",
   }),
 );
@@ -43,7 +43,7 @@ const wrapped = createIpcError(
     code: "NODE_CREDENTIAL_DECRYPT_FAILED",
   }),
 );
-assert.strictEqual(wrapped.message, "Saved node credentials could not be restored. Unlock AnxOS to continue.");
+assert.strictEqual(wrapped.message, "Saved node credentials could not be restored. Unlock AnxHost to continue.");
 assert(!wrapped.message.includes("NODE_CREDENTIAL_DECRYPT_FAILED"));
 
 const diagnostic = sanitize({
@@ -117,7 +117,7 @@ assert(securitySource.includes("localOwnerAuthenticated"), "Security status must
 assert(securitySource.includes("enterLocalCredentialsLocked"), "Authorized account identity must enter a local-credentials-locked state.");
 assert(nodeServiceSource.includes("if (!localCredentialsUnlocked())") && nodeServiceSource.includes("credentialsLocked: true"), "Locked node listing must avoid decrypt and remain visible.");
 assert(nodeServiceSource.includes("preserveDecryptionError: true"), "Authenticated credential-backed operations must preserve decrypt-failure classification.");
-assert(nodeServiceSource.includes("Unlock AnxOS to access saved node credentials."), "Credential-backed node operations must distinguish local lock from a genuinely missing credential.");
+assert(nodeServiceSource.includes("Unlock AnxHost to access saved node credentials."), "Credential-backed node operations must distinguish local lock from a genuinely missing credential.");
 assert(nodeServiceSource.includes("nodeCredentialRecovery?.degraded") && nodeServiceSource.includes("credentialRecovery: nodeCredentialRecovery"), "Unreadable encrypted node credentials must degrade only credential-backed node paths.");
 assert(
   /function needsCredentialWrite\(state\)\s*\{\s*if \(!localCredentialsUnlocked\(\)\) return false;/.test(nodeServiceSource),
@@ -127,10 +127,10 @@ assert(nodeServiceSource.includes("requireNodeCredentialWrite(\"node-config-writ
 assert(nodeIpcSource.includes("requireLocalOwnerAuthenticated(\"nodes:save\""), "Node saves must require local Owner authentication.");
 assert(nodeIpcSource.includes("requireLocalOwnerAuthenticated(\"nodes:test-connection\""), "Node connection tests must require local Owner authentication.");
 assert(agentControlIpcSource.includes("requireLocalOwnerAuthenticated("), "Local Agent actions must require local Owner authentication.");
-assert(appSource.includes("Unlock AnxOS to start the Application Host."), "Application Host must show explicit unlock guidance.");
+assert(appSource.includes("Unlock AnxHost to start the Application Host."), "Application Host must show explicit unlock guidance.");
 assert(appSource.includes("securityState?.localOwnerAuthenticated !== true") && appSource.includes("loadMarketplaceSettings"), "Marketplace settings must remain degraded without requesting protected credentials.");
 assert(appSource.includes("refreshProtectedStateAfterLocalOwnerAuthentication") && appSource.includes("refreshNodes({ forceHealthRefresh: true })") && appSource.includes("loadMarketplaceSettings()"), "Successful unlock must retry protected state through the deduplicated coordinator.");
-assert(appSource.includes("Saved node credentials could not be restored. Unlock AnxOS to continue."), "Renderer errors and Operations history must use friendly credential recovery text.");
+assert(appSource.includes("Saved node credentials could not be restored. Unlock AnxHost to continue."), "Renderer errors and Operations history must use friendly credential recovery text.");
 
 fs.writeFileSync(credentialPath, unreadableCredential, { mode: 0o600 });
 recovery.enterUnlocking();

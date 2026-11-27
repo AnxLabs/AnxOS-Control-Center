@@ -32,11 +32,11 @@
     const state = stateKey(input.state);
     const operation = input.operation || null;
     if (input.computerConnected === false) {
-      return { key: "unknown", label: "Computer offline", tone: "muted", detail: "AnxOS can't reach this server's computer, so its state is unknown." };
+      return { key: "unknown", label: "Computer offline", tone: "muted", detail: "AnxHost can't reach this server's computer, so its state is unknown." };
     }
     if (operation && operation.status === "running") {
       const labels = { start: "Starting", stop: "Stopping", restart: "Restarting", reload: "Restarting", update: "Updating" };
-      return { key: "busy", label: labels[operation.type] || "Working", tone: "busy", detail: "Please wait, AnxOS is working on this server." };
+      return { key: "busy", label: labels[operation.type] || "Working", tone: "busy", detail: "Please wait, AnxHost is working on this server." };
     }
     if (state === "running") {
       return input.ready === false
@@ -174,7 +174,7 @@
 
   function describeAddonSupport(instance = {}, options = {}) {
     const isMinecraft = options.isMinecraft === true;
-    if (!isMinecraft) return { show: false, supported: false, kind: null, reason: "Add-ons are not available for this game in AnxOS yet." };
+    if (!isMinecraft) return { show: false, supported: false, kind: null, reason: "Add-ons are not available for this game in AnxHost yet." };
     const software = String(instance.serverSoftware || "").trim().toLowerCase();
     const loader = MINECRAFT_LOADERS[software];
     if (!loader) {
@@ -185,11 +185,11 @@
         kind: null,
         reason: vanilla
           ? "This is a vanilla Minecraft server. Vanilla can't load mods or plugins. Create a Paper server for plugins, or a Fabric, Forge or NeoForge server for mods."
-          : `AnxOS can't manage add-ons for ${instance.serverSoftware} servers yet.`,
+          : `AnxHost can't manage add-ons for ${instance.serverSoftware} servers yet.`,
       };
     }
     if (!String(instance.minecraftVersion || "").trim()) {
-      return { show: true, supported: false, kind: loader.kind, reason: "AnxOS doesn't know this server's Minecraft version yet, so it can't pick compatible add-ons. Start the server once to detect it." };
+      return { show: true, supported: false, kind: loader.kind, reason: "AnxHost doesn't know this server's Minecraft version yet, so it can't pick compatible add-ons. Start the server once to detect it." };
     }
     return { show: true, supported: true, kind: loader.kind, label: loader.label, reason: "" };
   }

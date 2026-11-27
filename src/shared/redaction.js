@@ -30,7 +30,7 @@ const USER_FACING_DECRYPT_FAILURE = /\bNODE_CREDENTIAL_DECRYPT_FAILED\b(?::\s*Sa
 
 function redactString(value) {
   return String(value)
-    .replace(USER_FACING_DECRYPT_FAILURE, "Saved node credentials could not be restored. Unlock AnxOS to continue.")
+    .replace(USER_FACING_DECRYPT_FAILURE, "Saved node credentials could not be restored. Unlock AnxHost to continue.")
     .replace(PRIVATE_KEY_BLOCK, "[redacted-private-key]")
     .replace(PRIVATE_KEY_ASSIGNMENT, "$1=[redacted-private-key]")
     .replace(BEARER, "Bearer [redacted]")

@@ -96,7 +96,7 @@
     const note = el("p");
     const countdown = el("span", "", timeLeft());
     countdown.dataset.phonePairingCountdown = "";
-    note.append("This code works once and ends in ", countdown, ". Install the AnxOS certificate on the phone first (step 1), or the phone will warn that the connection isn't private.");
+    note.append("This code works once and ends in ", countdown, ". Install the AnxHost certificate on the phone first (step 1), or the phone will warn that the connection isn't private.");
     text.append(el("strong", "", `Scan with your phone (${pairing.role})`), note);
     const linkRow = (link) => {
       const row = el("div", "phone-pairing__link");
@@ -133,7 +133,7 @@
         el("small", "", `Paired ${when(device.createdAt)} · last used ${when(device.lastSeenAt)}${device.lastAddress ? ` from ${device.lastAddress}` : ""} · access ends ${when(device.expiresAt)} unless used`),
       );
       row.append(info, button("Remove", async () => {
-        if (!(await confirmDestructiveAction({ title: `Remove ${device.name}?`, message: `${device.name} loses access to AnxOS immediately. You can pair it again later.`, confirmLabel: "Remove phone" }))) return;
+        if (!(await confirmDestructiveAction({ title: `Remove ${device.name}?`, message: `${device.name} loses access to AnxHost immediately. You can pair it again later.`, confirmLabel: "Remove phone" }))) return;
         await run("Remove phone", () => api().revokeDevice(device.id), `${device.name} no longer has access.`);
       }, { danger: true }));
       list.append(row);
@@ -164,7 +164,7 @@
     const pill = el("span", `status-pill ${latest.running ? "status-pill--ok" : "status-pill--planned"}`, latest.running ? "On" : latest.enabled ? "Not running" : "Off");
     state.append(pill, latest.running
       ? button("Turn off", async () => {
-        if (!(await confirmDestructiveAction({ title: "Turn off Phone access?", message: "Paired phones stay paired but can't reach AnxOS until you turn it back on.", confirmLabel: "Turn off" }))) return;
+        if (!(await confirmDestructiveAction({ title: "Turn off Phone access?", message: "Paired phones stay paired but can't reach AnxHost until you turn it back on.", confirmLabel: "Turn off" }))) return;
         await run("Turn off Phone access", () => api().disable(), "Phone access is off.");
       })
       : button("Turn on", () => run("Turn on Phone access", () => api().enable(), (result) => (result.running ? "Phone access is on." : result.error || "Phone access could not start.")), { primary: true }));
@@ -174,14 +174,14 @@
     if (latest.running) {
       const where = el("p", "settings-note");
       where.textContent = latest.urls?.length
-        ? `On your home network, phones open ${latest.urls[0]}${latest.urls.length > 1 ? ` (this computer has ${latest.urls.length - 1} other address${latest.urls.length === 2 ? "" : "es"}, listed when you pair)` : ""}. Only devices on your local network can connect; AnxOS never exposes this to the internet.`
+        ? `On your home network, phones open ${latest.urls[0]}${latest.urls.length > 1 ? ` (this computer has ${latest.urls.length - 1} other address${latest.urls.length === 2 ? "" : "es"}, listed when you pair)` : ""}. Only devices on your local network can connect; AnxHost never exposes this to the internet.`
         : "This computer has no local network address right now, so phones can't connect.";
       draft.append(where);
 
       const steps = el("ol", "phone-steps");
       const caStep = el("li");
       caStep.append(
-        el("strong", "", "Install the AnxOS certificate on the phone (once). "),
+        el("strong", "", "Install the AnxHost certificate on the phone (once). "),
         el("span", "", `Open ${latest.urls?.[0] || "the address above"}anxos-local-ca.crt on the phone, or save it here and send it to yourself. Then trust it: iPhone: Settings > Profile Downloaded > Install, then General > About > Certificate Trust Settings. Android: Settings > Security > Encryption & credentials > Install a certificate > CA certificate. Check that its fingerprint ends in ${String(latest.caFingerprint || "").slice(-11)}.`),
         button("Save certificate...", () => run("Save certificate", () => api().saveCaCertificate(), (result) => (result.canceled ? "Not saved." : `Saved to ${result.path}.`))),
       );
@@ -206,9 +206,9 @@
       steps.append(caStep, pairStep);
       draft.append(steps);
       if (pairing) renderPairing(draft);
-      draft.append(el("p", "settings-note", "A phone never gets more than you choose here, and never more than the account signed in on this computer. Phones can't open SSH, run commands on this computer, change a server's start command or see saved credentials. Phone access only works while AnxOS is running and unlocked here."));
+      draft.append(el("p", "settings-note", "A phone never gets more than you choose here, and never more than the account signed in on this computer. Phones can't open SSH, run commands on this computer, change a server's start command or see saved credentials. Phone access only works while AnxHost is running and unlocked here."));
     } else {
-      draft.append(el("p", "settings-note", "Phone access lets your phone check and manage your servers from the AnxOS web app on your home network. It's off until you turn it on."));
+      draft.append(el("p", "settings-note", "Phone access lets your phone check and manage your servers from the AnxHost web app on your home network. It's off until you turn it on."));
     }
 
     const heading = el("h3", "phone-access__heading", "Paired phones");

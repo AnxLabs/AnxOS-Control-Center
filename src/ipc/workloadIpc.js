@@ -205,7 +205,7 @@ function registerWorkloadIpc() {
   // disk and size). Nothing is created or copied; the move itself is the
   // transfer channels below.
   ipcMain.handle("workload:migrationPreflight", async (_, payload = {}) => invokeWorkloadOperation(async () => {
-    requireLocalOwnerAuthenticated("workload:migration-preflight", "Unlock AnxOS to move servers between computers.");
+    requireLocalOwnerAuthenticated("workload:migration-preflight", "Unlock AnxHost to move servers between computers.");
     requirePermission("settings:write", "nodes");
     const nodeService = require("../services/nodeService");
     const serviceRouter = require("../services/serviceRouter");
@@ -231,7 +231,7 @@ function registerWorkloadIpc() {
   // audited exactly like the confirmed channel's (review P1-3/P1-5: a read
   // tier must never launder backups/imports/instance creation).
   ipcMain.handle("workload:transferPreview", async (_, payload = {}) => invokeWorkloadOperation(async () => {
-    requireLocalOwnerAuthenticated("workload:transfer-preview", "Unlock AnxOS to plan workload transfers.");
+    requireLocalOwnerAuthenticated("workload:transfer-preview", "Unlock AnxHost to plan workload transfers.");
     requirePermission("settings:write", "nodes");
     audit({ action: "workload.transfer-preview", target: transferTarget(payload) });
     const outcome = await workloadTransferService.transferWorkload({ ...payload, confirmOverwrite: false });
@@ -242,7 +242,7 @@ function registerWorkloadIpc() {
   // because it creates backups, registers a placeholder instance on the
   // target, and runs a confirmed destructive restore there.
   ipcMain.handle("workload:transfer", async (_, payload = {}) => invokeWorkloadOperation(async () => {
-    requireLocalOwnerAuthenticated("workload:transfer", "Unlock AnxOS to transfer workloads between nodes.");
+    requireLocalOwnerAuthenticated("workload:transfer", "Unlock AnxHost to transfer workloads between nodes.");
     requirePermission("settings:write", "nodes");
     audit({ action: "workload.transfer", target: transferTarget(payload) });
     const outcome = await workloadTransferService.transferWorkload(payload);
