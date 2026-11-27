@@ -1475,6 +1475,24 @@ Use this section to accumulate verified project knowledge over time. Add entries
   flows that only run at the end (closing, quitting, signals), not only
   startup.
 
+### 2026-11-26 — Reopening from the tray recreated the main window
+
+- **Problem:** On the owner's PC, after the RC1 upgrade, closing the main
+  window hid it to the tray, and opening the app again showed the startup
+  splash: the window and its renderer were rebuilt, so open SSH sessions and
+  unsaved edits would be lost on every reopen.
+- **Cause:** `ensureMainWindowVisible(reason, { recreateIfUnusable: true })`
+  (Build 194) judged a window "unusable" when it was not visible, before
+  trying to show it, and a window hidden to the tray is never visible.
+  Earlier Build 216 RCs hid this, because closing threw before `hide()`.
+- **Resolution:** Show the window first; recreate only if it is still
+  unusable after that. `window-close-ui-qa` W2 hides the window, launches
+  the app again and checks the same window and renderer state return.
+- **Lesson:** Recovery code must try the cheap, state-keeping path before the
+  destructive one, and "not visible" is a normal state for a tray app. Test a
+  close-and-reopen cycle, not only startup; fixing one bug (the close
+  handler) can expose the next one in the same flow.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

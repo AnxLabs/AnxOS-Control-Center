@@ -2017,6 +2017,36 @@ and `win-unpacked` (314 desktop modules, 0 unresolved, Agent copies present).
   blocks.
 - Waiting for the owner's `confirmed` before installing over the real app.
 
+### RC1 acceptance on the owner's PC (2026-11-26, after "confirmed")
+
+- Before: Build 215 installed, nothing running, Helper task **Disabled**
+  (the owner chose to let the upgrade re-enable it). Both `AnxHub` folders
+  backed up to `C:\Users\anjor\AnxHub-backup-before-216-RC1` (15,600 files)
+  and hashed (15,417 data files).
+- Upgrade with the signed Setup (SHA-256 `1626c22d…`) from Downloads:
+  engine hash and signature verified, measured copy, Done screen "Welcome to
+  AnxHost … Build 216 · Helper running" (`rc1-host-upgrade-done.png`). Setup
+  was driven by UI Automation (the screen tool cannot address an
+  uninstalled program); the Upgrade click itself was not made by the harness.
+- After: uninstall entry "AnxHost Control Center", `AnxHostBuild=216`,
+  app.asar build 216, Helper task Running, Agent healthy on 2.0-build216,
+  625 installed binaries validly signed, shortcuts renamed. Data: 0 files
+  missing or added; the 9 changed files were written by the upgraded app's
+  first run (session rotation, security, AnxNet host state, alerts, window
+  state, nodes), after the installer finished.
+- App (Computer Use): Home, My Servers (7 servers), Computers, Network
+  (Playit, Cloudflare Tunnel, Tailscale), Docker, Files, Backups (6),
+  Terminal, Activity, Security, Settings all render. The VPS shows offline
+  (its `127.0.0.1:47132` tunnel was not running).
+- Closing the main window hid it to the tray with no exception (the
+  `11c88275` fix). **Findings, fixed in `228d5ba3`:** reopening recreated
+  the window and discarded renderer state (since Build 194); the tray and
+  window titles still said AnxOS Control Center; Settings still showed
+  "AnxOS Control Center" (display name never migrated). Kept by earlier
+  decisions: "AnxOS Account", AnxOS Relay, "Unlock AnxOS …" messages.
+- Status: RC1 `32864023` is blocked by these findings; a new signed RC is
+  needed, with the approval gates again.
+
 ### 216-G remaining risks
 
 - The real-app UI suites are still sensitive to a busy machine (as recorded
