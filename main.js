@@ -729,13 +729,11 @@ function createWindow(options = {}) {
     saveWindowState(window);
     if (!qaMode && !appShuttingDown) {
       event.preventDefault();
-      closeAddStorageWindow();
       window.hide();
       diagnostics.log("info", "desktop", "window-hidden-to-tray", "Main window was hidden to the notification tray.", {}, { file: "desktop" });
       return;
     }
     completeWindowStartupAttempt("closed", { reason: "window-close" });
-    closeAddStorageWindow();
   });
   window.on("closed", () => {
     clearTimeout(showFallbackTimer);
