@@ -459,9 +459,63 @@ nothing released). All jobs green: static validation, RC validation (444/444
     the installer configuration) is unchanged since Build 216, whose Sandbox
     matrix passed.
 
+## Published (2026-11-27)
+
+- The owner approved with `🚀 publish`. Records were pushed to `dev`
+  (`e483a062..fa611ecb`).
+- `v2.0-build217` (annotated, "AnxHost Control Center v2.0-build217") was
+  tagged on the accepted RC1 commit `9e1b3455`. There was no RC2, and the
+  only desktop rebuild was the tag run.
+- **Release run** 46100413258 passed all five jobs (static validation,
+  rc-validation, Windows, Linux, publish). It published 12 assets to
+  AnxOS-Control-Center-Releases.
+- **Published files**, downloaded and checked:
+  - All 11 `SHA256SUMS` entries match. There is exactly one Setup asset, and
+    the updater picks it.
+  - Setup, its embedded engine and the portable are Authenticode Valid (Anjo
+    ROSIMO, Microsoft ID Verified CS EOC CA 03, timestamped). The engine's
+    SHA-256 (`f3cd4982…`) equals the value compiled into Setup.
+  - `latest.yml` and the blockmap describe Setup, and `update-manifest.json`
+    reads 2.0 Build 217 Private Alpha.
+  - The tag run signs again, so the files differ from RC1's.
+  - The desktop `.deb` is about 500 KB larger than RC1's. It has the same 702
+    files with the same sizes, and all 3,579 files inside `app.asar` are
+    byte-identical to the accepted RC1's. The size difference comes from the
+    asar header and xz compression only.
+
+  | Asset | SHA-256 |
+  | --- | --- |
+  | Setup | `34e06a302f84e95cfd538fe6aacdd58d8a17888157633efd27a7a28c0c494779` |
+  | Portable | `2383ad52c0d55ae33ba9d3082607f76526068bbe76c5157024c3d5bb32c8fc8c` |
+  | Linux `.deb` | `765c450e142f04e305c02f2e19d30a37c6f26ad63453366cf54049aba4e176c2` |
+  | AppImage | `63faa6bcab2ec4e122cc36a12c33db554d0a25cf77e807df4d24885b5153262e` |
+  | Agent `.deb` | `7dad5f5550731a96b5be0d3a5e5564bb4eecbce4a29ab9f64a9dbf6c24b4a16b` |
+
+- **Release notes:** the tag commit's notes still said sign-in pages come from
+  the legacy host. The published release body was replaced with `dev`'s
+  current `RELEASE_NOTES_2.0-build217.md`, before promotion. The only change
+  is that limitation line.
+- **Promotion run** 46103185903 passed every step:
+  - Website metadata commit `ce517144` on `dev`.
+  - Stable Latest in both repositories.
+  - The Releases README managed section updated.
+  - Guarded Pages deploy 46103207110 succeeded.
+- **Public checks:**
+  - Both repositories report Latest `v2.0-build217`.
+  - The updater's `latest.yml` and `update-manifest.json` at
+    `releases/latest` are Build 217.
+  - `config.js` on both hosts is Build 217.
+  - Home, Download and Release notes on `anxhost.anxlabs.net` name Build 217.
+  - `website-launch-check --stage=switched` passes 15 of 15.
+  - **Download API:** for about 5 minutes after promotion, some edge machines
+    still served Build 216 files. Their cached release list was fetched while
+    217 was a pre-release (`RELEASES_FRESH_MS`, 5 min), as designed. From
+    20:38 all 48 sampled requests (4 platforms, 6 each, on both hosts)
+    redirected to the Build 217 files, and the files answer 206.
+
 ## Next (needs the owner)
 
-- **RC1 accepted on the owner's PC** (above). Status: ready for publication; waiting for the owner's `🚀 publish`.
+- **Published 2026-11-27** (above). Nothing is pending for the release.
 - **Supabase:** the new origin and redirect entry are applied and verified by preflight (217-H). Owner decision: the Auth Site URL and redirect list do not include `anxoscontrolcenter.org` (pre-existing; see 217-H).
 - **The website's sign-in 302:** removed only after a real sign-in, activation and password recovery on `anxhost.anxlabs.net`, which need the owner's account.
 - **Housekeeping:** the scratch worktree `b216` used for the A/B comparison was removed at the end of the session (its `node_modules` junction first).

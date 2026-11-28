@@ -3,7 +3,7 @@
 This file holds the plan of the build in progress first, then the plans of
 earlier builds, kept unchanged as the record.
 
-- **Build 217: Operation Refinement** (local development complete; push and signed RC1 approved 2026-11-27 with the 217-H owner decisions, below)
+- **Build 217: Operation Refinement** (published 2026-11-27 as `v2.0-build217` from RC1 `9e1b3455`, below)
 - **Build 216: AnxHost CC Rebirth** (complete; published 2026-11-27, see
   "Build 216" further down)
 
