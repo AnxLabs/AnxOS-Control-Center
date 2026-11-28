@@ -26,7 +26,7 @@ Build 217 is a refinement release: the app is ready sooner, uses less memory and
 ## Known limitations
 
 - With the startup sound on, memory use is about the same as Build 216. With it off (the new default), AnxHost used about 20% less memory while idle on Home in our measurement.
-- Sign-in pages still open from `anxoscontrolcenter.org` behind the scenes, until the account service is set up to trust the new address.
+- Sign-up confirmation and password-reset emails still open pages on `anxoscontrolcenter.org`. Sign-in and activation pages are served on both addresses.
 - Package, file and folder names keep "AnxOS" (`AnxOS-Agent-*.deb`, the `AnxHub` data folder, the `AnxOSAgent` task) so updates stay in place.
 - See `docs/KNOWN_LIMITATIONS.md` for the full list.
 

@@ -330,11 +330,19 @@ browser, the owner's existing session). Both changes are additive.
   sends people to the Site URL on pages.dev. This dates from before Build 217.
   Fixing it would mean adding the legacy host to the redirect list or changing
   the Site URL, which changes auth policy beyond this approval.
-- **Still open:** a real sign-in, activation and password recovery on
-  `anxhost.anxlabs.net`. The website's 302 still sends the new host's sign-in
-  pages to the legacy host, so those pages cannot be tried on the new host
-  until the 302 is removed. Removing it needs a website deploy and the owner's
-  decision. The app side needs no rebuild: RC1 already trusts both hosts.
+- **Website 302 removed** (owner: "Yes, remove it"): commit `e483a062`, pushed
+  to `dev`, and deployed by the guarded `cloudflare-pages-deploy.yml`, run
+  46098747038 (deployment `3200a012`). The guards passed (config matches the
+  published Build 216, release docs current, consistency). `website-launch-check
+  --stage=switched` passed 15/15 live: the new host serves `/signin/`,
+  `/activate/?code=…`, `/account/`, `/forgot-password/` and `/reset-password/`
+  itself, and the legacy host still serves sign-in, `config.js`,
+  `release-notes.json` and the download API. The sign-in page loads on the new
+  host in a browser, with no console messages. Rollback: restore the rule in
+  `website/_worker.js` and redeploy.
+- **Still to do, with the owner's account:** a real sign-in, activation (from
+  RC1, which opens `/activate/` on the new host) and password recovery on
+  `anxhost.anxlabs.net`. RC1 needs no rebuild; it already trusts both hosts.
 
 ### Validation
 

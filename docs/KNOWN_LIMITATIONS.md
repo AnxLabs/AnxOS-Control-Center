@@ -42,11 +42,12 @@ These limitations are acceptable for Private Alpha if they are clearly communica
   whenever the app closes, including for an update. This is unchanged from
   Build 216. With the task set up (the default), the Agent and its servers keep
   running through an update.
-- **Sign-in pages still come from `anxoscontrolcenter.org`.** The app opens
-  account pages on `anxhost.anxlabs.net`, and the website sends them on (302)
-  to the legacy host. The account service and Supabase Auth now trust the
-  new host (applied 2026-11-27). The 302 is removed only after a real
-  sign-in, activation and password recovery work on the new host.
+- **Account emails still lead to `anxoscontrolcenter.org`.** Sign-in,
+  activation and account pages are served on `anxhost.anxlabs.net` (since
+  2026-11-27) and on the legacy host. Sign-up confirmation and password-reset
+  emails still return to the legacy pages, because the website's account
+  configuration names that host. Supabase Auth's Site URL and redirect list
+  are an open owner decision (see `docs/HANDOFF_BUILD217.md` 217-H).
 
   The steps are in `docs/anxhost/DOMAIN_MIGRATION_PLAN.md`.
 - **Running the installer by hand while the app is open still force-closes
