@@ -337,9 +337,45 @@ Docker Desktop was started for those two suites and stopped afterwards. Starting
 
 The full `rc:validate` is not repeated locally: CI runs it on Linux for RC1 (static and RC validation jobs), with real `node_modules`, which also covers the three checks that fail here only because of this worktree's `node_modules` junction.
 
+## RC1 (signed): run 46095374024, commit `9e1b3455`
+
+Pushed to `dev` with the owner's approval (fast-forward `87cf3d56..9e1b3455`)
+and built by `windows-release.yml` (workflow_dispatch; publish skipped,
+nothing released). All jobs green: static validation, RC validation (444/444
+`:smoke` suites on Linux, including `agent:package`, `local-agent:runtime`,
+`startup-sound-default` and `update-handoff`), Windows (signed), Linux.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `AnxOS-Control-Center-Setup-2.0-build217.exe` (441,559,384 bytes) | `d6baae2c44331c818ec9f9044a41d6fcc25de38b62a6739c9883d8507fd7fc3e` |
+| embedded engine (440,521,792 bytes, not published) | `9e895fae117ed4dd26c31f82979a75f2a2cf52a13bac6f697888695666aff4f4` |
+| `AnxOS-Control-Center-2.0-build217-portable.exe` | `0766044655bea036d0ccbef292479e454920caa439ca5497b97a974128582b0d` |
+| `AnxOS-Control-Center-2.0-build217.deb` | `07b17b0cf8e1c5c00609dcf248f54483d07508b552c12de80b4ab16a9bc824ec` |
+| `AnxOS-Control-Center-2.0-build217.AppImage` | `1da791daaa015d4512dc28891d97093e7f356c1b9df22c57d86cbf9aa17b9d14` |
+| `AnxOS-Agent-2.0-build217.deb` | `e11a160991d1fc48211989b8bcaee02f7b9d5d6c223e0b8daa81bca5b2b0e21e` |
+| `latest.yml` | `aabc7d14992ce213fd5643f56af6dae7ef69ee5104aeb2f4f939f1d556a2c094` |
+
+- Artifact checks 10/10: Setup, engine and portable Authenticode Valid
+  (CN=Anjo ROSIMO, issuer Microsoft ID Verified CS EOC CA 03); engine hash
+  compiled into Setup; the engine is not the Build 216 or 215 installer;
+  `latest.yml` and blockmap describe Setup; exactly one Setup asset, picked by
+  the updater; the publish job's manifest, SHA256SUMS and validation steps
+  pass locally. Setup is about 10 KB larger than Build 216 RC3's (no
+  packaging jump).
+- Agent package (WSL Ubuntu 24.04, `dpkg-deb`): `postinst`, `prerm`,
+  `postrm`, the systemd unit, the sudoers rule, `/usr/bin/anxos-agent`, the
+  update helper and the bundled Node runtime are byte-identical to Build 216's;
+  no CR byte in any text file; 2 new files, both Build 217 modules
+  (`updateHandoffService.js`, `orphanTempRecovery.js`); `agent-release.json`
+  reports `2.0-build217`. This stands in for `agent-package-closure`, which
+  fails in this worktree only because of its `node_modules` junction.
+- Not done yet: Windows Sandbox scenarios, installation on the owner's PC
+  (needs `confirmed`), Computer Use acceptance, and the real sign-in,
+  activation and recovery on the new domain (needs the owner's account).
+
 ## Next (needs the owner)
 
-- **Push and RC1:** approved by the owner on 2026-11-27 (217-H). Next is the RC report, then `confirmed` for the in-place upgrade (ADP release workflow).
+- **RC1 is built and verified** (above). Next: the owner's `confirmed` for the in-place upgrade over the installed app, then Computer Use acceptance (ADP release workflow).
 - **Supabase (approved, not applied):** the owner signs in to the Supabase dashboard; then the Auth redirect entry and the functions' origin are added and the preflight is checked again (217-H).
 - **The website's sign-in 302:** removed only after a real sign-in, activation and password recovery on `anxhost.anxlabs.net`, which need the owner's account.
 - **Housekeeping:** the scratch worktree `b216` used for the A/B comparison was removed at the end of the session (its `node_modules` junction first).
