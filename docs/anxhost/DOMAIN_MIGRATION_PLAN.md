@@ -33,13 +33,13 @@ each need a separate approval.
 | `anxoscontrolcenter.org` sign-in (`/account`, `/activate`, `/signin`, `/signup`, `/profile`, `/device*`, `/forgot-password`, `/reset-password`) | served | served (never redirected) |
 | `anxoscontrolcenter.org` `/config.js`, `/release-notes.json`, `/api/download/*`, IndexNow key, `robots.txt`, `sitemap.xml`, assets | served | served (installed apps and tools read them) |
 | `anxhost.anxlabs.net` page | served, `noindex` | served, indexable |
-| `anxhost.anxlabs.net` sign-in page | **302** to the same path on the legacy host | **302** to the same path on the legacy host |
+| `anxhost.anxlabs.net` sign-in page | served (until 2026-11-27: **302** to the same path on the legacy host) | served (until 2026-11-27: **302** to the legacy host) |
 | `www.` of either host | 301 to the canonical host (sign-in and app paths to legacy) | same |
 | `*.pages.dev` | `noindex` | `noindex` |
 
-Only `GET` and `HEAD` are redirected. The sign-in redirect is a 302 because
-it is temporary: it lasts until the app (Build 217) and the account service
-trust the new origin.
+Only `GET` and `HEAD` are redirected. The new host's sign-in redirect was a
+302 because it was temporary; it was removed on 2026-11-27, once the app
+(Build 217) and the account service trusted the new origin.
 
 ## What `--switch=new` changes
 
@@ -98,7 +98,7 @@ Do these after the DNS record exists and the switch is approved and deployed.
 
 1. **Done 2026-11-27:** `https://anxhost.anxlabs.net` appended to the `ANXOS_ALLOWED_ORIGINS` secret (old value kept in full; functions not redeployed). Live preflight answers the new origin with itself on both functions.
 2. **Done 2026-11-27:** `https://anxhost.anxlabs.net/**` added to Supabase Auth's redirect URL allow list; existing entries and the Site URL unchanged. Note: the Site URL is the pages.dev host and the list has no `anxoscontrolcenter.org` entry (pre-existing; see `docs/HANDOFF_BUILD217.md` 217-H).
-3. Remove the 302 in `website/_worker.js` (`host === NEW_HOST && readOnly && AUTH_PAGE`) and deploy through the guarded workflow. Then the sign-in pages are served on the new host.
+3. **Done 2026-11-27 (owner: "Yes, remove it"):** the 302 in `website/_worker.js` is removed and deployed through the guarded workflow; the sign-in pages are served on the new host (`website-host-routing-smoke` H2, `website-launch-check` new-host sign-in checks). The legacy host keeps serving them. Rollback: restore the rule and redeploy.
 4. Later, optionally: move `website/account-config.js` `siteUrl` to the new host, so activation emails link there.
 
 Rollback for each step: re-add the 302, or restore the previous secret or function. The legacy host keeps serving throughout.

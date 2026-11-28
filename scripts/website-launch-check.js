@@ -13,9 +13,11 @@
 //   --stage=deployed   after the approved deploy of the routing worker (legacy
 //                      still canonical): legacy checks, every download API
 //                      request redirects to the official release (no 502),
-//                      the new host is noindex and sends sign-in to legacy
+//                      the new host is noindex and serves sign-in itself
 //   --stage=switched   after the approved canonical switch: legacy pages 301
-//                      to the new host, app and sign-in paths stay on legacy
+//                      to the new host, app and sign-in paths stay on legacy,
+//                      and the new host serves sign-in itself (no 302 since
+//                      2026-11-27)
 //   --samples=<n>      download API requests per platform (default 8)
 // Run: node scripts/website-launch-check.js --stage=dns
 
@@ -124,14 +126,21 @@ async function downloadApi(host, { strict }) {
   else console.log(`INFO ${host} download API (${samples * PLATFORMS.length} requests): ${summary}`);
 }
 
+// The new host serves its own sign-in pages (no redirect), and they load the
+// account configuration that talks to the shared account service.
+async function newHostSignIn() {
+  for (const page of ["/signin/?return=%2Faccount", "/activate/?code=TEST-CODE", "/account/", "/forgot-password/", "/reset-password/"]) {
+    await check(`${NEW}${page} served on the new host`, `https://${NEW}${page}`, (r) => (r.status === 200 && !r.location && /account-config.js/.test(r.body) ? null : `status ${r.status}${r.location ? ` -> ${r.location}` : ""}`));
+  }
+}
+
 async function deployedStage() {
   await legacyStage();
   await downloadApi(LEGACY, { strict: true });
   await check(`${LEGACY} home is indexable`, `https://${LEGACY}/`, (r) => (r.status === 200 && !r.robots ? null : `status ${r.status}, x-robots-tag ${r.robots}`));
   await check(`${LEGACY} serves the redesign`, `https://${LEGACY}/anxhost-site.css`, expectStatus(200));
   await check(`${NEW} home is noindex before the switch`, `https://${NEW}/`, (r) => (r.status === 200 && /noindex/.test(r.robots || "") ? null : `status ${r.status}, x-robots-tag ${r.robots}`));
-  await check(`${NEW}/signin/ sends sign-in to the legacy host`, `https://${NEW}/signin/?return=%2Faccount`, expectRedirect(302, `https://${LEGACY}/signin/?return=%2Faccount`));
-  await check(`${NEW}/activate/ keeps the device code`, `https://${NEW}/activate/?code=TEST-CODE`, expectRedirect(302, `https://${LEGACY}/activate/?code=TEST-CODE`));
+  await newHostSignIn();
   await downloadApi(NEW, { strict: true });
 }
 
@@ -145,7 +154,7 @@ async function switchedStage() {
   await downloadApi(LEGACY, { strict: true });
   await check(`${NEW} home is indexable with its own canonical`, `https://${NEW}/`, (r) => (r.status === 200 && !r.robots && r.body.includes(`<link rel="canonical" href="https://${NEW}/">`) ? null : `status ${r.status}, x-robots-tag ${r.robots}`));
   await check(`${NEW}/robots.txt names the new sitemap`, `https://${NEW}/robots.txt`, (r) => (r.body.includes(`Sitemap: https://${NEW}/sitemap.xml`) ? null : "sitemap line missing"));
-  await check(`${NEW}/signin/ still sends sign-in to legacy`, `https://${NEW}/signin/`, expectRedirect(302, `https://${LEGACY}/signin/`));
+  await newHostSignIn();
   await check(`${NEW} IndexNow key`, `https://${NEW}/${INDEXNOW_KEY}.txt`, (r) => (r.status === 200 && r.body.trim() === INDEXNOW_KEY ? null : `status ${r.status}`));
 }
 

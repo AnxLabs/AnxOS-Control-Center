@@ -147,9 +147,10 @@ const LEGACY_HOST = "anxoscontrolcenter.org";
 const NEW_HOST = "anxhost.anxlabs.net";
 const CANONICAL_HOST = NEW_HOST;
 
-// Sign-in stays on the legacy host until the app and the account service
-// trust the new host (Build 217 and a separate approval): the new host sends
-// these to the same path on the legacy host.
+// Sign-in pages. Both hosts serve them: the app (Build 217) and the account
+// service trust both since 2026-11-27, so the new host's former 302 to the
+// legacy host is gone. They are never moved away from the legacy host, which
+// installed apps up to Build 216 open for sign-in and activation.
 const AUTH_PAGE = /^\/(?:account|activate|signin|signup|sign-in|sign-up|profile|device|device-login|forgot-password|reset-password)(?:\.html|\/(?:index\.html)?)?$/i;
 // Served directly on the legacy host for installed apps and tools.
 const LEGACY_DIRECT = /^\/(?:config\.js|release-notes\.json|account-config\.js|marketplace-config\.js|robots\.txt|sitemap\.xml|[0-9a-f]{32}\.txt)$/i;
@@ -170,9 +171,6 @@ function routeForHost(url, method) {
   if (host === `www.${LEGACY_HOST}` || host === `www.${NEW_HOST}`) {
     const keepOnLegacy = AUTH_PAGE.test(path) || LEGACY_DIRECT.test(path) || path.startsWith("/api/");
     return { redirect: `https://${keepOnLegacy ? LEGACY_HOST : CANONICAL_HOST}${pathAndQuery}`, status: 301 };
-  }
-  if (host === NEW_HOST && readOnly && AUTH_PAGE.test(path)) {
-    return { redirect: `https://${LEGACY_HOST}${pathAndQuery}`, status: 302 };
   }
   if (host === LEGACY_HOST && CANONICAL_HOST !== LEGACY_HOST && readOnly && isPagePath(path) && !AUTH_PAGE.test(path) && !LEGACY_DIRECT.test(path) && !path.startsWith("/api/")) {
     return { redirect: `https://${CANONICAL_HOST}${pathAndQuery}`, status: 301 };

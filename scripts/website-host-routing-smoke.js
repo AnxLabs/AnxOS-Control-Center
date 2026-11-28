@@ -5,8 +5,10 @@
 // (anxhost.anxlabs.net new, anxoscontrolcenter.org legacy). No network.
 //   H1 with the legacy host canonical (the mode before the switch): its pages are served and
 //      indexable, the new host serves the same pages marked noindex
-//   H2 the new host never serves sign-in: account, activate, sign-in and the
-//      other auth pages go to the same path and query on the legacy host
+//   H2 both hosts serve every sign-in page (account, activate, sign-in and the
+//      other auth pages) without a redirect, in both modes, keeping the query.
+//      Until 2026-11-27 the new host sent them to the legacy host (302); the
+//      owner approved serving them once the account service trusted both hosts.
 //   H3 www of either host goes to the canonical host, except paths installed
 //      apps use, which go to the legacy host
 //   H4 with CANONICAL_HOST switched to the new host, ordinary legacy pages get
@@ -79,12 +81,11 @@ async function main() {
   // H2
   for (const worker of [legacyMode, newMode]) {
     for (const auth of AUTH_PATHS) {
-      const url = new URL(`https://${NEW}${auth}`);
-      assertRedirect(await hit(worker, url.toString()), `https://${LEGACY}${url.pathname}${url.search}`, 302, `new-host ${auth}`);
+      await assertServed(await hit(worker, `https://${NEW}${auth}`), `new-host ${auth}`, { indexable: worker === newMode });
       await assertServed(await hit(worker, `https://${LEGACY}${auth}`), `legacy ${auth}`, { indexable: worker === legacyMode });
     }
   }
-  console.log(`PASS H2 the new host sends all ${AUTH_PATHS.length} sign-in paths to the legacy host, in both modes`);
+  console.log(`PASS H2 both hosts serve all ${AUTH_PATHS.length} sign-in paths without a redirect, in both modes`);
 
   // H3
   assertRedirect(await hit(legacyMode, `https://www.${LEGACY}/release-notes?x=1`), `https://${LEGACY}/release-notes?x=1`, 301, "www legacy, legacy mode");
