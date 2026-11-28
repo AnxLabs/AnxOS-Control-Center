@@ -394,9 +394,74 @@ nothing released). All jobs green: static validation, RC validation (444/444
   (needs `confirmed`), Computer Use acceptance, and the real sign-in,
   activation and recovery on the new domain (needs the owner's account).
 
+## RC1 acceptance on the owner's PC (2026-11-27, after "confirmed" and "done")
+
+- **Before:** published Build 216 installed and running, Helper task
+  Running, Local Agent `2.0-build216`. The only server on this PC (Minecraft
+  Vanilla) was stopped and Docker Desktop was off, so the update interrupted
+  no workload. Both `AnxHub` folders were backed up to
+  `C:\Users\anjor\AnxHub-backup-before-217-RC1` (robocopy, 0 failures) and
+  hashed (15,436 and 28 data files, caches excluded).
+- **Upgrade with the signed Setup** (`d6baae2c…`) from Downloads, driven by
+  UI Automation like a user:
+  - The welcome screen showed "Update AnxHost Control Center … Installed
+    Build 216 → New Build 217", with the kept-data list.
+  - The flow was Update, then "Close and continue" (11 programs), the Helper
+    stopped first.
+  - The owner approved two UAC prompts, one to stop the Helper and one to set
+    it up again. About 80 s were spent copying 1,295 MB.
+  - Done: "Updated to Build 217 … Build 217 · Helper running". No NSIS or
+    console window appeared.
+- **After:**
+  - `AnxHostBuild=217`; the Helper task is Running; 625 installed binaries
+    are validly signed; the Start menu has "AnxHost Control Center".
+  - The Agent reports `2.0-build217` with the **same** device, installation
+    and generation ids.
+  - Data: 0 files lost. The one leftover temp file
+    (`alerts.json.15172.….tmp`, from Build 216 RC3's forced close) was
+    **moved to `.recovered-tmp/` at startup**: the 217-E orphan recovery
+    working on a real install.
+  - 12 config files changed, all rewritten by the running app (alerts,
+    telemetry, window state, session rotation, AnxNet host state, nodes
+    health, audit).
+  - `preferences.json` changed only `startup.minimumDurationMs` 2000 → 900
+    (217-A migration). `startup.sound` stayed `true`: the owner's saved
+    choice was kept, as designed.
+- **App, through Computer Use:**
+  - Home showed Anxlab online with 7 servers, and the known offline VPS (the
+    manual tunnel is not running).
+  - Settings › About: Build 217, commit 9e1b345, Electron 43.
+  - Settings › Startup: splash 900; the sound toggle and volume work.
+  - Updates: "You're up to date" (latest published Build 216), checked at
+    startup.
+  - Add Server: "paper minecraft" finds Paper, Purpur and Velocity.
+  - My Servers: Anxlab's 7 servers, with a stable layout.
+  - Computers: the AnxNet `anx-delta35` network is intact; this PC
+    coordinates it and Anxlab connects directly (4 ms).
+  - Agent Control: Anxlab Build 214 is compatible, with 8 d 16 h uptime, so
+    the desktop update did not touch it. The Local AnxHost Agent runs Build
+    217, its registration is valid and its startup is registered.
+  - Closing the window hid it to the tray. Launching again showed the same
+    window: same main process (PID 19524), same page.
+- **Logs since the upgrade:** 4 desktop error lines, all "Agent unavailable at
+  127.0.0.1:47132". That is the offline VPS tunnel. The same line appeared 38
+  to 68 times an hour earlier on 2026-11-27 under Build 216, so it is not a
+  regression.
+- **Findings:** none blocking.
+  - The Add Server cards still read "AnxOS · Template v1.0.0", because 50
+    catalog templates name "AnxOS" as their author. 217-B kept the author on
+    purpose as catalog data (handoff 217-B, "Kept on purpose"). It could be
+    shown as "AnxHost" without changing the data, if the owner wants that.
+- **Not covered here:**
+  - The owner's own sign-in, activation and password recovery on
+    `anxhost.anxlabs.net`.
+  - Windows Sandbox scenarios. Setup's code (`windows/`, the build scripts and
+    the installer configuration) is unchanged since Build 216, whose Sandbox
+    matrix passed.
+
 ## Next (needs the owner)
 
-- **RC1 is built and verified** (above). Next: the owner's `confirmed` for the in-place upgrade over the installed app, then Computer Use acceptance (ADP release workflow).
+- **RC1 accepted on the owner's PC** (above). Status: ready for publication; waiting for the owner's `🚀 publish`.
 - **Supabase:** the new origin and redirect entry are applied and verified by preflight (217-H). Owner decision: the Auth Site URL and redirect list do not include `anxoscontrolcenter.org` (pre-existing; see 217-H).
 - **The website's sign-in 302:** removed only after a real sign-in, activation and password recovery on `anxhost.anxlabs.net`, which need the owner's account.
 - **Housekeeping:** the scratch worktree `b216` used for the A/B comparison was removed at the end of the session (its `node_modules` junction first).
