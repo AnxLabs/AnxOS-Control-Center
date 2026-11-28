@@ -302,26 +302,39 @@ save. Fixing that needs a graceful stop channel to that child; it is listed in
   computer's servers; the instance shutdown covers only spawned children;
   background AnxNet is detached; the notice).
 
-### Supabase origins and Auth redirect list
+### Supabase origins and Auth redirect list (applied 2026-11-27, 19:2x-19:31 -07:00)
 
-- **Not applied yet: it needs the owner's Supabase sign-in.** This PC has no
-  Supabase CLI or access token, and the dashboard in the built-in browser shows
-  its sign-in page. Claude does not sign in to accounts.
-- Live check before the change (CORS preflight to `anxos-account`, no
-  credentials): the legacy origin is answered with itself, and
-  `https://anxhost.anxlabs.net` is answered with the legacy origin, so the
-  deployed function does not yet trust the new host.
-- Once signed in, the approved, additive steps are:
-  1. Authentication › URL Configuration: add `https://anxhost.anxlabs.net/**`
-     and keep every existing entry.
-  2. Let the functions trust the new origin. Either deploy them from
-     `supabase/functions` (their built-in list already has both hosts), or
-     set the `ANXOS_ALLOWED_ORIGINS` secret. The functions merge that secret
-     with their built-in list.
-  3. Repeat the preflight: the new origin must be answered with itself.
-- The website's sign-in 302 on the new host stays until a real sign-in,
-  activation and password recovery have been completed there. Those need the
-  owner's account, so they are part of RC acceptance with the owner.
+Applied with the owner's approval in the Supabase dashboard (built-in
+browser, the owner's existing session). Both changes are additive.
+
+- **Auth › URL Configuration:** added `https://anxhost.anxlabs.net/**`.
+  The four existing redirect URLs and the Site URL are unchanged (5 URLs
+  after a reload).
+- **`ANXOS_ALLOWED_ORIGINS` secret:** its value could not be read, so it was
+  identified first by matching the dashboard's SHA-256 digest against
+  candidate origin lists computed locally. The match was
+  `https://anxoscontrolcenter.org,http://localhost:4173,http://127.0.0.1:4173`.
+  The new value is that string plus `,https://anxhost.anxlabs.net`, and the new
+  digest (`94725788…`) matches it. Rollback: set the old string again. The
+  functions were not redeployed; both merge the secret with their built-in
+  list.
+- **Live preflight after the change** (`OPTIONS`, no credentials):
+  `anxos-account` and `anxos-marketplace-curseforge` answer
+  `anxoscontrolcenter.org`, `anxhost.anxlabs.net` and `localhost:4173` with
+  themselves, and an unknown origin with the legacy origin (not allowed).
+- **Finding (not changed, needs the owner's decision):** the Auth Site URL is
+  `https://anxos-control-center.pages.dev`, and the redirect list holds only
+  that host and localhost, not `anxoscontrolcenter.org`. The website asks Auth
+  to return sign-up and reset emails to `anxoscontrolcenter.org`
+  (`account-config.js` `siteUrl`). That address is not on the list, so Supabase
+  sends people to the Site URL on pages.dev. This dates from before Build 217.
+  Fixing it would mean adding the legacy host to the redirect list or changing
+  the Site URL, which changes auth policy beyond this approval.
+- **Still open:** a real sign-in, activation and password recovery on
+  `anxhost.anxlabs.net`. The website's 302 still sends the new host's sign-in
+  pages to the legacy host, so those pages cannot be tried on the new host
+  until the 302 is removed. Removing it needs a website deploy and the owner's
+  decision. The app side needs no rebuild: RC1 already trusts both hosts.
 
 ### Validation
 
@@ -376,6 +389,6 @@ nothing released). All jobs green: static validation, RC validation (444/444
 ## Next (needs the owner)
 
 - **RC1 is built and verified** (above). Next: the owner's `confirmed` for the in-place upgrade over the installed app, then Computer Use acceptance (ADP release workflow).
-- **Supabase (approved, not applied):** the owner signs in to the Supabase dashboard; then the Auth redirect entry and the functions' origin are added and the preflight is checked again (217-H).
+- **Supabase:** the new origin and redirect entry are applied and verified by preflight (217-H). Owner decision: the Auth Site URL and redirect list do not include `anxoscontrolcenter.org` (pre-existing; see 217-H).
 - **The website's sign-in 302:** removed only after a real sign-in, activation and password recovery on `anxhost.anxlabs.net`, which need the owner's account.
 - **Housekeeping:** the scratch worktree `b216` used for the A/B comparison was removed at the end of the session (its `node_modules` junction first).

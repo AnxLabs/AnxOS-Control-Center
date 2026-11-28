@@ -44,10 +44,9 @@ These limitations are acceptable for Private Alpha if they are clearly communica
   running through an update.
 - **Sign-in pages still come from `anxoscontrolcenter.org`.** The app opens
   account pages on `anxhost.anxlabs.net`, and the website sends them on (302)
-  to the legacy host. The owner approved adding the new origin to the account
-  service and to Supabase Auth's redirect list. Those changes need the owner's
-  Supabase sign-in and were not applied yet. The 302 is removed only after a
-  real sign-in, activation and password recovery work on the new host.
+  to the legacy host. The account service and Supabase Auth now trust the
+  new host (applied 2026-11-27). The 302 is removed only after a real
+  sign-in, activation and password recovery work on the new host.
 
   The steps are in `docs/anxhost/DOMAIN_MIGRATION_PLAN.md`.
 - **Running the installer by hand while the app is open still force-closes

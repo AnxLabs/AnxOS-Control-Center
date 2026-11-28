@@ -96,8 +96,8 @@ Do these after the DNS record exists and the switch is approved and deployed.
 
 ### Production steps prepared, each needing the owner's approval (authentication policy)
 
-1. Deploy the two Supabase functions with the added origin, or add `https://anxhost.anxlabs.net` to the `ANXOS_ALLOWED_ORIGINS` secret. Never remove the legacy origin.
-2. Add `https://anxhost.anxlabs.net/**` to Supabase Auth's redirect URL allow list (Authentication › URL Configuration), keeping every legacy entry.
+1. **Done 2026-11-27:** `https://anxhost.anxlabs.net` appended to the `ANXOS_ALLOWED_ORIGINS` secret (old value kept in full; functions not redeployed). Live preflight answers the new origin with itself on both functions.
+2. **Done 2026-11-27:** `https://anxhost.anxlabs.net/**` added to Supabase Auth's redirect URL allow list; existing entries and the Site URL unchanged. Note: the Site URL is the pages.dev host and the list has no `anxoscontrolcenter.org` entry (pre-existing; see `docs/HANDOFF_BUILD217.md` 217-H).
 3. Remove the 302 in `website/_worker.js` (`host === NEW_HOST && readOnly && AUTH_PAGE`) and deploy through the guarded workflow. Then the sign-in pages are served on the new host.
 4. Later, optionally: move `website/account-config.js` `siteUrl` to the new host, so activation emails link there.
 
