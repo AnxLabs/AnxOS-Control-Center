@@ -1585,7 +1585,7 @@ const DEFAULT_SETTINGS = {
   "appearance.accentColor": DEFAULT_ACCENT_COLOR,
   "startup.enabled": true,
   "startup.minimumDurationMs": STARTUP_MINIMUM_MS,
-  "startup.sound": true,
+  "startup.sound": false,
   "startup.soundVolume": 42,
   "general.defaultPage": "dashboard",
   "general.restorePreviousPage": true,
@@ -3157,8 +3157,11 @@ function readStoredSettings() {
   }
 }
 
+// Build 217: the startup sound is off unless the user turned it on. Playing it
+// starts Chromium's audio service (about 84 MB), which stays for the whole
+// session. A saved choice, on or off, is kept.
 function isStartupSoundEnabled() {
-  return readStoredSettings()["startup.sound"] !== false;
+  return readStoredSettings()["startup.sound"] === true;
 }
 
 function isStartupSplashEnabled() {
@@ -48976,7 +48979,7 @@ async function installUpdate() {
   try {
     const result = await (desktopApiState.api.updates.install ? desktopApiState.api.updates.install() : desktopApiState.api.updates.openDownloaded());
     if (result?.closing) {
-      showToast("Closing AnxHost to install the update. Servers on this PC stop and are saved first.");
+      showToast("Closing AnxHost to install the update. Servers this app runs stop and are saved first. Servers run by an Agent, Docker containers and other computers keep running.");
       return;
     }
     // Work on this PC must finish first: a notice, not an installer error.

@@ -482,12 +482,20 @@ async function main() {
       const notUndone = await page.evaluate((selector) => [...document.querySelectorAll(`${selector} .app-modal__details dt`)].find((dt) => dt.textContent === "Not undone")?.nextElementSibling?.textContent || "", OPEN_DIALOG);
       assert(/database/.test(notUndone), "the confirmation separates image rollback from data");
       await page.evaluate((selector) => document.querySelector(`${selector} [data-confirm-ok]`).click(), OPEN_DIALOG);
+      // The update renames the old container aside before it creates the new
+      // one, so for a moment no container has the name: keep waiting then.
+      const currentImage = () => { try { return docker(["inspect", NGINX, "--format", "{{.Image}}"]); } catch { return null; } };
       const deadline = Date.now() + 240000;
-      while (docker(["inspect", NGINX, "--format", "{{.Image}}"]) === nginxOldImage && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 2000));
+      while ([nginxOldImage, null].includes(currentImage()) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 2000));
       await new Promise((resolve) => setTimeout(resolve, 25000));
       const after = docker(["inspect", NGINX, "--format", "{{.Image}}"]);
       const marker = docker(["exec", NGINX, "cat", "/usr/share/nginx/html/marker.txt"]);
-      assert.notStrictEqual(after, nginxOldImage, "runs the newer image");
+      if (after === nginxOldImage) {
+        const containers = docker(["ps", "-a", "--filter", `name=${NGINX}`, "--format", "{{.Names}} {{.Image}} {{.Status}}"]);
+        const dialog = await page.evaluate(() => [...document.querySelectorAll(".app-modal, .toast")].map((node) => node.textContent.replace(/\s+/g, " ").trim()).filter(Boolean).join(" | ").slice(0, 600));
+        await shot(page, "W2-not-updated");
+        assert.fail(`runs the newer image (containers: ${containers.replace(/\n/g, "; ")}; on screen: ${dialog})`);
+      }
       assert.strictEqual(marker, "anx215-ui-kept", "data kept");
       await shot(page, "W2-after-docker-update");
       return `${nginxOldImage.slice(7, 19)} -> ${after.slice(7, 19)}, data kept`;

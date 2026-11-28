@@ -14,6 +14,7 @@ Plan: `PLANS.md` (Build 217 section). Protocol: `AGENTS.md` (ADP).
 | 217-F Mobile | **Complete; local checkpoint commit** (not pushed). Every tap target is at least 44 px. Going offline shows at once and stops polling. A hidden page does no freshness work. Permissions, pairing, certificates and the API are unchanged. |
 | 217-D AnxNet infrastructure | **Investigation complete** (`docs/anxhost/ANXNET_INFRASTRUCTURE.md`). No code, DNS, port or service change. Recommends a configurable suffix in a later build and an AnxLabs relay only as a separately approved project. |
 | 217-G Stabilization and RC preparation | **Complete locally; stopped at the RC approval gate.** Full gate run: every non-environmental check passes. Release notes, known limitations and this handoff are updated. Nothing pushed; no signed RC built. |
+| 217-H Owner decisions | **Complete locally, except the Supabase step.** Startup sound off by default (saved choices kept; -19.5% idle working set in one round). Update shutdown reviewed: it stops only what this app runs. Docker suites run. Supabase steps approved but waiting for the owner's sign-in. Push and RC1 approved. |
 
 ## Repository
 
@@ -31,6 +32,7 @@ Plan: `PLANS.md` (Build 217 section). Protocol: `AGENTS.md` (ADP).
 | 217-E | 2026-11-27T12:31:12-07:00 | 2026-11-27T12:40:41-07:00 | 0 h 10 min (investigation done earlier, while suites ran) |
 | 217-F | 2026-11-27T12:40:41-07:00 | 2026-11-27T12:46:12-07:00 | 0 h 06 min |
 | 217-G | 2026-11-27T12:46:38-07:00 | 2026-11-27T13:17:45-07:00 | 0 h 31 min |
+| 217-H owner decisions, to the RC1 commit | 2026-11-27T18:33:38-07:00 | 2026-11-27T18:53:07-07:00 | 0 h 19 min |
 | **Build 217 total** | 2026-11-27T10:28:59-07:00 | 2026-11-27T13:17:45-07:00 | **2 h 49 min** |
 
 ## 217-A Performance
@@ -234,8 +236,110 @@ Not run:
 - A real sign-in, activation and recovery: they need the owner's account.
 - The end-to-end in-app update: it needs the signed RC. Both belong in RC acceptance.
 
+## 217-H Owner decisions (2026-11-27 evening)
+
+The owner's decisions on the 217-G report: the startup sound off by default
+(saved choices kept), an investigation of releasing the audio process, the
+additive Supabase origin and Auth redirect change, a careful review of the
+update shutdown, then push and the signed RC1.
+
+### Startup sound off by default
+
+- `startup.sound` now defaults to off in the main process
+  (`settingsPreferenceService`) and the renderer (`DEFAULT_SETTINGS`), and
+  the startup screen plays only when the saved value is `true`.
+- **Saved choices are kept.** Nothing rewrites a saved value. The settings
+  file stores every key once it has been saved, so an install whose file
+  already says "on" keeps the sound after the update. That includes values
+  saved only because they were the old default, which cannot be told apart
+  from a deliberate "on". Settings › Startup still has the toggle and volume.
+- The startup `<audio>` element is now `preload="none"`, so a silent start
+  never loads the sound.
+- **Measured** (1 round, fresh profile, so the new default): Chromium's audio
+  service did not start. Home idle working set **403.6 MB** (Build 216
+  median 501.3 MB, **-19.5%**), private 241.4 MB (264.2, -8.6%). Shell
+  revealed cold 2674 ms, warm 2412 ms; Home 86 req/min. That meets the 15-25%
+  memory target on working set while the sound is off. One round only; the
+  3-round medians in 217-A remain the record for everything else.
+- **Releasing the audio process after playback: not feasible without a
+  larger change.** 217-A already measured that releasing the `<audio>` element
+  and `--audio-service-quit-timeout-ms` leave the service running. The
+  remaining option, audio inside the app's own process, weakens Chromium's
+  process isolation, so it was not done. No further benchmarks were run.
+- Regression: `scripts/startup-sound-default-smoke.js` (SS1-SS6: new install
+  off, saved on and off kept, the toggle still works, a file without the key,
+  the legacy `general.startupSound` key, the renderer's real
+  `isStartupSoundEnabled`, `preload="none"`). SS1 and the renderer checks fail on
+  the 217-G code.
+
+### Update shutdown review
+
+The shutdown before an install is the app's normal quit. It stops:
+
+- **Servers this app runs** (`shutdownInstanceService` stops only
+  `runningProcesses`, children this process spawned; a service-managed server
+  can never be one). On Windows these children end when the app exits
+  whatever happens: libuv puts every non-detached child in a kill-on-close job.
+  This was verified on this PC with a parent and a child, and with a parent,
+  child and grandchild: all ended with the parent. So stopping them with their
+  own stop command saves their worlds; it is not an extra stop. Servers set to
+  start with the computer start again at the next launch (`SERVICE_SHUTDOWN`).
+- The in-app Phone Access gateway and an in-app AnxNet node. The background
+  AnxNet host is detached and keeps running unless the user turned that off.
+- SSH tunnels to remote Agents (connections only).
+
+It does not touch the Local Agent task, any remote computer, Docker, or a
+service-managed server. **Known limitation (unchanged from Build 216):** a Local
+Agent that Agent Control started as a child of the app (no `AnxOSAgent` task)
+ends with the app, on every quit and on update, and its servers end without a
+save. Fixing that needs a graceful stop channel to that child; it is listed in
+`docs/KNOWN_LIMITATIONS.md` rather than changed now.
+
+- The closing notice now says what keeps running ("Servers run by an Agent,
+  Docker containers and other computers keep running.").
+- Regression: `update-handoff-smoke` U9 (no before-quit handler reaches Agent
+  Control, schtasks, systemctl, Docker, the service router or another
+  computer's servers; the instance shutdown covers only spawned children;
+  background AnxNet is detached; the notice).
+
+### Supabase origins and Auth redirect list
+
+- **Not applied yet: it needs the owner's Supabase sign-in.** This PC has no
+  Supabase CLI or access token, and the dashboard in the built-in browser shows
+  its sign-in page. Claude does not sign in to accounts.
+- Live check before the change (CORS preflight to `anxos-account`, no
+  credentials): the legacy origin is answered with itself, and
+  `https://anxhost.anxlabs.net` is answered with the legacy origin, so the
+  deployed function does not yet trust the new host.
+- Once signed in, the approved, additive steps are:
+  1. Authentication › URL Configuration: add `https://anxhost.anxlabs.net/**`
+     and keep every existing entry.
+  2. Let the functions trust the new origin. Either deploy them from
+     `supabase/functions` (their built-in list already has both hosts), or
+     set the `ANXOS_ALLOWED_ORIGINS` secret. The functions merge that secret
+     with their built-in list.
+  3. Repeat the preflight: the new origin must be answered with itself.
+- The website's sign-in 302 on the new host stays until a real sign-in,
+  activation and password recovery have been completed there. Those need the
+  owner's account, so they are part of RC acceptance with the owner.
+
+### Validation
+
+| Check | Result |
+| --- | --- |
+| `startup-sound-default-smoke` (new), `update-handoff-smoke` (U9 new), `settings-preferences-smoke`, `migration-store-recovery-smoke`, `startup-minimum-smoke`, `steamcmd-instance-update-smoke`, `frozen-identifiers-smoke`, `account-primary-domain-smoke` | PASS |
+| `node --check` on every changed JavaScript file; capability inventory `--check` (1,573 rows, 0 unmapped); `git diff --check` | PASS |
+| `build214-ui-qa` with Docker Desktop started for the run (it was off in 217-G) | **PASS 10/10** (J1, J2, P1 included) |
+| `build215-ui-qa` on the disposable `anx215-a` node and this PC's Docker | **8/9 on the first run:** W2 found the nginx service still on its old image after 265 s. A rerun of W1 and W2 with Docker events recorded showed the update itself working (pull, stop, rename aside, create). The check then failed because its poll ran `docker inspect` in the moment the name did not exist. **Test fix:** the poll now waits through that gap; the assertions are unchanged, and a failure now reports the containers and the on-screen text. **Rerun: W1, W2 PASS** (1eadbb078203 -> 8eb04fe3b385, data kept). The first failure's cause is not proven. It came on a cold image cache (the newer image was not on this PC yet), and the newer image was present afterwards. |
+| Performance, 1 round, startup sound off (new default) | Working set 403.6 MB (Build 216 median 501.3, -19.5%), private 241.4 MB (-8.6%), no audio service; cold shell 2674 ms |
+
+Docker Desktop was started for those two suites and stopped afterwards. Starting it also brought up the developer's own containers that have restart policies; they stopped with it.
+
+The full `rc:validate` is not repeated locally: CI runs it on Linux for RC1 (static and RC validation jobs), with real `node_modules`, which also covers the three checks that fail here only because of this worktree's `node_modules` junction.
+
 ## Next (needs the owner)
 
-- **Approval to push** `claude/anxhost-build-217` (the 8 Build 217 commits after `87cf3d56`) to `dev`, then the signed RC build, the RC report, and `confirmed` for the in-place upgrade (ADP release workflow).
-- **Owner decisions:** the startup sound's default (memory); the 217-C production steps (Supabase origins, Auth redirect list, removing the website's sign-in 302).
+- **Push and RC1:** approved by the owner on 2026-11-27 (217-H). Next is the RC report, then `confirmed` for the in-place upgrade (ADP release workflow).
+- **Supabase (approved, not applied):** the owner signs in to the Supabase dashboard; then the Auth redirect entry and the functions' origin are added and the preflight is checked again (217-H).
+- **The website's sign-in 302:** removed only after a real sign-in, activation and password recovery on `anxhost.anxlabs.net`, which need the owner's account.
 - **Housekeeping:** the scratch worktree `b216` used for the A/B comparison was removed at the end of the session (its `node_modules` junction first).

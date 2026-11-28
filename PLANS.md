@@ -3,7 +3,7 @@
 This file holds the plan of the build in progress first, then the plans of
 earlier builds, kept unchanged as the record.
 
-- **Build 217: Operation Refinement** (local development complete and stopped at the RC approval gate, below)
+- **Build 217: Operation Refinement** (local development complete; push and signed RC1 approved 2026-11-27 with the 217-H owner decisions, below)
 - **Build 216: AnxHost CC Rebirth** (complete; published 2026-11-27, see
   "Build 216" further down)
 
@@ -14,7 +14,7 @@ earlier builds, kept unchanged as the record.
 | Field | Value |
 | --- | --- |
 | Product | **AnxHost Control Center v2.0 Build 217** |
-| Status | Plan written 2026-11-27 from the owner's Build 217 brief. Phases 217-A to 217-G done locally (checkpoint commits, nothing pushed); stopped at the RC approval gate. Record: `docs/HANDOFF_BUILD217.md`. |
+| Status | Plan written 2026-11-27 from the owner's Build 217 brief. Phases 217-A to 217-G done locally (checkpoint commits). 217-H (owner decisions: startup sound off by default, update shutdown review, Docker suites) done; the approved Supabase steps wait for the owner's sign-in. Push and signed RC1 approved; stop at the RC installation gate. Record: `docs/HANDOFF_BUILD217.md`. |
 | Baseline | `origin/dev` at `87cf3d56`. Build 216 was published from `1212d772` (`v2.0-build216`), and the website has been canonical on `anxhost.anxlabs.net` since 2026-11-27. |
 | Development branch | `claude/anxhost-build-217`, created from `87cf3d56` |
 | Governing protocol | `AGENTS.md` (ADP) |

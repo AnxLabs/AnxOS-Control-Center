@@ -400,6 +400,7 @@
     "device-architecture:smoke": "node scripts/device-architecture-smoke.js",
     "local-owner-auth:smoke": "node scripts/local-owner-auth-smoke.js",
     "settings:preferences:smoke": "node scripts/settings-preferences-smoke.js",
+    "startup-sound-default:smoke": "node scripts/startup-sound-default-smoke.js",
     "settings:permissions:smoke": "node scripts/settings-permissions-smoke.js",
     "settings:ipc-authorization:smoke": "node scripts/settings-ipc-authorization-smoke.js",
     "settings:ipc-error-contract:smoke": "node scripts/settings-ipc-error-contract-smoke.js",

@@ -44,7 +44,7 @@ const SETTING_DEFINITIONS = {
 
   "startup.enabled": { category: "startup", type: "boolean", default: true },
   "startup.minimumDurationMs": { category: "startup", type: "number", default: STARTUP_MINIMUM_DURATION_DEFAULT_MS, min: 0, max: 15000 },
-  "startup.sound": { category: "startup", type: "boolean", default: true },
+  "startup.sound": { category: "startup", type: "boolean", default: false },
   "startup.soundVolume": { category: "startup", type: "number", default: 42, min: 0, max: 100 },
   "startup.launchOnLogin": { category: "startup", type: "boolean", default: false, restartRequired: true },
   "startup.startMinimized": { category: "startup", type: "boolean", default: false },

@@ -30,17 +30,24 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 
 ## Build 217
 
-- **Memory use is about the same as Build 216 (1-3% lower).** The 15-25%
-  target was not met. The one large item is Chromium's audio service (about
-  84 MB). The startup sound, which is on by default, keeps it alive for the
-  whole session. Turning the sound off by default would save that memory; this
-  is left as an owner decision.
+- **The memory saving needs the startup sound off.** It is off for new
+  installs, and an update keeps the setting you have now. While the sound is
+  on, Chromium's audio service (about 84 MB) starts with it and stays for the
+  whole session, so memory is about the same as Build 216. Ending that service
+  after the sound would mean running audio inside the app's own process, which
+  weakens Chromium's process isolation, so it is not done.
+- **A Local Agent that the app started itself ends with the app.** When the
+  `AnxOSAgent` task is not set up, Agent Control runs the Agent as a child of
+  the app. Windows ends that child, and the servers it runs, without a save
+  whenever the app closes, including for an update. This is unchanged from
+  Build 216. With the task set up (the default), the Agent and its servers keep
+  running through an update.
 - **Sign-in pages still come from `anxoscontrolcenter.org`.** The app opens
   account pages on `anxhost.anxlabs.net`, and the website sends them on (302)
-  to the legacy host. That lasts until the owner approves:
-  - adding the new origin to the account service (Supabase functions or
-    `ANXOS_ALLOWED_ORIGINS`) and to Supabase Auth's redirect list;
-  - removing the website's 302.
+  to the legacy host. The owner approved adding the new origin to the account
+  service and to Supabase Auth's redirect list. Those changes need the owner's
+  Supabase sign-in and were not applied yet. The 302 is removed only after a
+  real sign-in, activation and password recovery work on the new host.
 
   The steps are in `docs/anxhost/DOMAIN_MIGRATION_PLAN.md`.
 - **Running the installer by hand while the app is open still force-closes
@@ -56,9 +63,10 @@ These limitations are acceptable for Private Alpha if they are clearly communica
   install or settings change of a server this app runs, holds the update
   back until it finishes. A task that is paused also holds it back; cancel it
   to install.
-- **Not run for this build: the Docker-dependent real-app checks**
-  (`build214-ui-qa` J1, J2, P1 and `build215-ui-qa`). Docker Desktop was not
-  running on the development PC. Their other checks passed.
+- **One unexplained Docker update check.** On its first run, `build215-ui-qa`
+  W2 found a Docker service still on its old image after 265 s, with the
+  newer image not yet downloaded on the PC. Two later runs updated it within
+  seconds and kept its data. The first failure's cause is not proven.
 - **A configurable AnxNet domain and an AnxLabs relay are not built.** The
   investigation and proposal are in `docs/anxhost/ANXNET_INFRASTRUCTURE.md`.
 

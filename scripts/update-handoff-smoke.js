@@ -18,6 +18,9 @@
 //      a missing store is reported; the aside folder keeps 20
 //   U8 the renderer asks before discarding unsaved edits and shows a busy
 //      refusal as a notice
+//   U9 the shutdown before an install stops only what this app runs: its own
+//      server processes (which on Windows end with the app anyway), never an
+//      Agent, Docker, a service-managed server or another computer
 // Run: node scripts/update-handoff-smoke.js
 
 const assert = require("assert");
@@ -187,6 +190,33 @@ async function main() {
       assert.ok(body.includes('result?.code === "UPDATE_BUSY"') && body.includes("result?.closing"), "handles busy and closing");
       const guard = app.slice(app.indexOf("function hasUnsavedEditsBeforeClosing()"), app.indexOf("async function installUpdate()"));
       for (const name of ["hasDirtyFileEditor", "hasDirtyInstanceFile", "hasUnsavedInstanceSettings", "isGameConfigDirty"]) assert.ok(guard.includes(name), `checks ${name}`);
+    });
+
+    await check("U9 the shutdown before an install stops only what this app runs", () => {
+      const main = fs.readFileSync(path.join(root, "main.js"), "utf8");
+      // Every before-quit handler, not only the main one.
+      const marker = 'app.on("before-quit"';
+      const handlers = [];
+      for (let at = main.indexOf(marker); at >= 0; at = main.indexOf(marker, at + 1)) {
+        const end = main.indexOf("});", at);
+        handlers.push(main.slice(at, end > at ? end : at + 2500));
+      }
+      assert.ok(handlers.length >= 5, "all before-quit handlers found");
+      const forbidden = [/agentControl/i, /schtasks/i, /systemctl/i, /docker/i, /nodeService\.\w*stop/i, /serviceRouter/i, /stopInstance\(/, /restartInstance/];
+      for (const body of handlers) for (const pattern of forbidden) assert.ok(!pattern.test(body), `a before-quit handler must not call ${pattern}`);
+      // The instance service stops only children it spawned itself.
+      const core = fs.readFileSync(path.join(root, "src", "shared", "instances", "instanceServiceCore.js"), "utf8");
+      const shutdownAt = core.indexOf("async function shutdownInstanceService(");
+      const shutdown = core.slice(shutdownAt, core.indexOf("\nfunction ", shutdownAt + 1));
+      assert.ok(shutdown.includes("const instanceIds = [...runningProcesses.keys()];"), "stops only servers this process spawned");
+      assert.ok(core.includes('assertNotServiceManaged(config, "start-spawn")'), "a service-managed server is never one of them");
+      // Servers set to start with the computer come back after the update.
+      assert.ok(core.includes('stored.stopOrigin === "service-shutdown") return { start: true, reason: "SERVICE_SHUTDOWN" }'));
+      // AnxNet's background host keeps running unless the user turned that off.
+      const anxnet = fs.readFileSync(path.join(root, "src", "services", "anxnetService.js"), "utf8");
+      assert.ok(/current\.mode === "background" && readSettings\(\)\.keepRunningWhenClosed !== false\) current\.detach\(\)/.test(anxnet), "background AnxNet is detached, not stopped");
+      const app = fs.readFileSync(path.join(root, "app.js"), "utf8");
+      assert.ok(app.includes("Servers run by an Agent, Docker containers and other computers keep running."), "the closing notice says what keeps running");
     });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
