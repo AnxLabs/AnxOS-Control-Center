@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxhost.anxlabs.net",
   logoPath: "/assets/anxhost-logo.png",
   latestVersion: "2.0",
-  build: "216",
-  buildNumber: "216",
+  build: "217",
+  buildNumber: "217",
   channel: "Private Alpha",
-  releaseLabel: "Version 2.0 Build 216 Private Alpha",
+  releaseLabel: "Version 2.0 Build 217 Private Alpha",
   releaseDate: "November 27, 2026",
-  releaseTag: "v2.0-build216",
+  releaseTag: "v2.0-build217",
   releaseRepository: {
     owner: "AnxLabs",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build216",
+  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build217",
   githubReleasesApiUrl: "https://api.github.com/repos/AnxLabs/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,48 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-2.0-build216.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build216/AnxOS-Control-Center-Setup-2.0-build216.exe"
+          fileName: "AnxOS-Control-Center-Setup-2.0-build217.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build217/AnxOS-Control-Center-Setup-2.0-build217.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build216-portable.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build216/AnxOS-Control-Center-2.0-build216-portable.exe"
+          fileName: "AnxOS-Control-Center-2.0-build217-portable.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build217/AnxOS-Control-Center-2.0-build217-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build216.AppImage",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build216/AnxOS-Control-Center-2.0-build216.AppImage"
+          fileName: "AnxOS-Control-Center-2.0-build217.AppImage",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build217/AnxOS-Control-Center-2.0-build217.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build216.deb",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build216/AnxOS-Control-Center-2.0-build216.deb"
+          fileName: "AnxOS-Control-Center-2.0-build217.deb",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build217/AnxOS-Control-Center-2.0-build217.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "2.0",
+          "build": 217,
+          "channel": "Private Alpha",
+          "tag": "v2.0-build217",
+          "date": "November 27, 2026",
+          "datetime": "2026-11-28",
+          "title": "AnxHost Control Center v2.0 — Build 217",
+          "summary": "Build 217 is a refinement release: the app is ready sooner, uses less memory and does less work in the background, updates install without cutting anything off, the phone app is easier to tap, and the last \"AnxOS\" wording on screen now says AnxHost. Your servers, computers, settings, backups, SSH profiles and paired phones carry over when you update.",
+          "changes": [
+              "**Add Server search matches every word.** \"paper minecraft\" or \"valheim server\" now finds the card even when the words are in a different order on it. A one-word search works as before.",
+              "**The app is ready sooner.** The startup screen now lasts at least 0.9 s instead of 4.2 s, and it no longer waits for readings that cannot arrive while the app is locked. In our measurements the main window appeared about 65% sooner (8.7 s to 3.1 s). Startup times you chose yourself in Settings are kept.",
+              "**The startup sound is off for new installs.** Playing it keeps Chromium's audio service (about 84 MB) running for the whole session. Turn it on in Settings › Startup. An update keeps the setting you have now, on or off.",
+              "**Installing an update closes AnxHost properly first.** Servers this app runs are stopped with their own stop command, so worlds are saved, and pending changes are written before the installer opens. Servers run by an Agent, Docker containers and your other computers keep running. Until now the installer forced the app closed. If a file transfer, a server install or another task is still running, Install asks you to wait for it, and it asks before discarding unsaved edits.",
+              "**The AnxHost website is now `anxhost.anxlabs.net`.** Account pages open there and update checks read it first. `anxoscontrolcenter.org` keeps working for every installed version.",
+              "**Phone Access is easier to tap.** Every button, tab and breadcrumb is at least 44 px tall, and the phone says at once when it loses its connection.",
+              "**The remaining \"AnxOS\" wording on screen now says AnxHost**, in messages, dialogs, tooltips, notifications and the phone app. File, folder, package, task and service names keep \"AnxOS\" so updates stay in place.",
+              "**My Servers rebuilt every row's buttons every 5 seconds**, so Start and Stop flickered and the page did extra work when nothing had changed. Rows now change only when a server does.",
+              "**Home asked the Agent for AMP every 2 seconds** even when AMP was not set up on that computer. It now checks once a minute until AMP is configured, and Home makes about a quarter fewer requests while idle.",
+              "**In the light theme, the health chips in Computer details** (\"Checked\", \"Issues\", \"Workspace\") were too faint to read comfortably. They now meet contrast guidelines.",
+              "**Temp files from a save that was cut off** (for example by a forced close) were left in the settings folder for good. AnxHost now moves them aside at startup.",
+              "**An update that was cut off before its installer opened** now shows the same guidance as an unconfirmed install, instead of looking as if it was still in progress."
+          ],
+          "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build217"
+      },
       {
           "version": "2.0",
           "build": 216,
